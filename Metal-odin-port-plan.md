@@ -95,6 +95,31 @@ hand-rolled compute shaders and port directly.
    GPU capture via attaching Xcode or `MTLCaptureManager` (bound).
 9. **Target macOS only.** Odin-on-iOS is rough. All rendering content is platform-neutral;
    the TBDR/imageblock chapters (12–15) just need an Apple-silicon Mac.
+10. **`#simd` types do not follow the C vector ABI (verified July 2026, dev-2026-07).**
+    Odin passes `#simd[4]f32`/`#simd[2]u32` `proc "c"` parameters in general-purpose
+    registers, while clang puts `vector_float3`/`vector_uint2` in SIMD registers
+    (AAPCS64 short vectors) — so *every* call into a simd-signature Apple API mis-passes
+    its arguments, whether through `intrinsics.objc_send` or a plain `foreign` C import.
+    Verified two ways: `MDLMesh initSphereWithExtent:…` crashes with the segments vector
+    showing up as an object pointer, and a clang-compiled control function receives
+    garbage lanes. No upstream issue exists yet (worth filing). Consequence:
+    **hand-binding Model I/O's procedural initializers is off the table in Odin** — the
+    workarounds are a clang-compiled shim exposing scalar/pointer parameters only, or
+    pure-Odin replacements (mesh generators, cgltf), which is what §2's gap table already
+    recommends. Metal itself is unaffected (its API passes structs like `ClearColor`,
+    never simd vectors by value).
+11. **The vendor `MTKView` delegate bridge vs. autorelease pools** (found porting
+    ch. 1): `MTKView.delegate` is a *weak* Obj-C property, and
+    `vendor:darwin/MetalKit`'s `View_setDelegate` wraps your Odin `ViewDelegate` struct
+    in an **autoreleased `NSValue`**. If you call `setDelegate` inside an autorelease
+    pool (which you should be using during setup — see gotcha 1), the wrapper is
+    deallocated at pool drain and **drawing silently stops** — no crash, no warning,
+    just zero `drawInMTKView` calls. Fix: retain the wrapper right after setting it:
+    `intrinsics.objc_send(^NS.Value, view, "delegate")->retain()`. Also remember `main`
+    itself needs a setup pool around AppKit/Metal initialization (drained before
+    `app->run()`, which manages its own per-event pools); `OBJC_DEBUG_MISSING_POOLS=YES`
+    flags the gap. Warnings from Apple-internal worker threads (e.g. the runtime shader
+    compiler) are noise you can't fix.
 
 ## 4. Suggested port structure
 
