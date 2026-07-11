@@ -14,6 +14,11 @@
 //! the Objective-C runtime records an *empty* type encoding for vector
 //! parameters, which the released verifier rejects in debug builds.
 
+// Apple Silicon only: on x86_64 these would be __m128/SSE types with a
+// different ABI to audit. Not worth supporting for a learning port.
+#[cfg(not(target_arch = "aarch64"))]
+compile_error!("the simd-selector workaround is written for Apple silicon (aarch64) only");
+
 use core::arch::aarch64::{float32x4_t, uint32x2_t};
 
 /// A `vector_float3`: three floats in a 16-byte vector register.

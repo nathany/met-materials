@@ -255,14 +255,23 @@ Lessons from the first working port (both playgrounds build and render with
    | `asset.boundingBox`, `.maxBounds`/`.minBounds` | ch. 23–25, 29, 30 | `MDLAxisAlignedBoundingBox` struct not generated at all (simd fields) | vector-aggregate return → msgSend typed as returning `#[repr(C)] (float32x4_t, float32x4_t)` (ARM64 returns it in v0/v1); or compute bounds from vertex data (~20 lines, honest alternate) |
    | `.float4x4Array` (`MDLMatrix4x4Array`), `.float3Array`, `.floatQuaternionArray` (skeleton + joint animation) | ch. 23–24 | pointer-to-simd getters (`getFloat4x4Array:maxCount:` etc.) skipped; the *classes* are generated | easiest of the three: pointer args are plain pointers — msgSend typed with `*mut Mat4` / `*mut Vec4` writes **directly into glam types** (matching column-major layout) |
 
-   **Will objc2 grow simd support?** Yes — clearly in progress upstream: PR #584
-   ("support-simd") merged, the encoding-check fix is in the unreleased changelog, an
-   `unstable-simd` test feature exists, and header-translator already maps
-   `vector_float3` → `core::simd::Simd<f32, 3>`. Method emission is blocked on Rust
-   stabilizing SIMD-in-FFI (rust-lang/rust#63068) / portable SIMD, so expect it to
-   arrive nightly-gated first. The helpers are written to be deleted: each one is the
-   same selector the generated method will eventually expose, so call sites keep their
-   book-shaped names and only the helper module shrinks when upstream catches up.
+   **Will objc2 grow simd support?** Yes, groundwork exists — but slowly. Encoding-side
+   support merged back in 2024
+   ([madsmtm/objc2#584](https://github.com/madsmtm/objc2/pull/584)), an `unstable-simd`
+   test feature exists, header-translator already maps `vector_float3` →
+   `core::simd::Simd<f32, 3>`, and the debug-verifier fix we need sits in the unreleased
+   changelog. Method emission is a hard-coded skip in header-translator ("simd types are
+   not yet possible in methods") with **no open objc2 tracking issue** (checked July
+   2026) — the real blocker is Rust stabilizing SIMD-in-FFI
+   ([rust-lang/rust#63068](https://github.com/rust-lang/rust/issues/63068)) and portable
+   SIMD. The helpers are written to be deleted: each one is the same selector the
+   generated method will eventually expose, so call sites keep their book-shaped names
+   and only the helper module shrinks when upstream catches up.
+
+   **Apple Silicon only.** The helpers use `core::arch::aarch64` NEON types, so they
+   don't compile on Intel Macs (`x86_64` would need `__m128`/SSE equivalents and its own
+   ABI audit). Supporting both isn't worth it for a learning port; `simd.rs` carries a
+   `compile_error!` on non-aarch64 so the failure is explicit rather than mysterious.
 2. **`msg_send!` + `Encoding::None` does not work on released objc2 (≤ 0.6.4)** for simd
    arguments: the Obj-C runtime records an *empty* encoding for vector parameters, and
    the debug-build verifier rejects the call ("expected argument at index 0 to have type
