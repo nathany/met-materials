@@ -244,6 +244,25 @@ Lessons from the first working port (both playgrounds build and render with
    `Allocated::as_ptr` + `mem::forget` (init consumes the +1) → `Retained::from_raw`.
    Expect to reuse this for later chapters' procedural primitives; consider promoting it
    into the shared `common` crate when it grows a second caller.
+
+   **Full impact inventory** (book's Swift sources vs. generated bindings — nothing in
+   the book is unportable; every gap is Model I/O-shaped and falls into one of three
+   helper patterns):
+
+   | Book usage | Where | Gap | Helper pattern |
+   |---|---|---|---|
+   | `MDLMesh(sphere/plane/box/coneWithExtent:…)` — 51/50/13/2 call sites, most chapters | ch. 1 onward | all four initializers skipped | by-value vectors → NEON-typed `objc_msgSend` (the ch. 1 pattern; ~15 lines per initializer, shared module) |
+   | `asset.boundingBox`, `.maxBounds`/`.minBounds` | ch. 23–25, 29, 30 | `MDLAxisAlignedBoundingBox` struct not generated at all (simd fields) | vector-aggregate return → msgSend typed as returning `#[repr(C)] (float32x4_t, float32x4_t)` (ARM64 returns it in v0/v1); or compute bounds from vertex data (~20 lines, honest alternate) |
+   | `.float4x4Array` (`MDLMatrix4x4Array`), `.float3Array`, `.floatQuaternionArray` (skeleton + joint animation) | ch. 23–24 | pointer-to-simd getters (`getFloat4x4Array:maxCount:` etc.) skipped; the *classes* are generated | easiest of the three: pointer args are plain pointers — msgSend typed with `*mut Mat4` / `*mut Vec4` writes **directly into glam types** (matching column-major layout) |
+
+   **Will objc2 grow simd support?** Yes — clearly in progress upstream: PR #584
+   ("support-simd") merged, the encoding-check fix is in the unreleased changelog, an
+   `unstable-simd` test feature exists, and header-translator already maps
+   `vector_float3` → `core::simd::Simd<f32, 3>`. Method emission is blocked on Rust
+   stabilizing SIMD-in-FFI (rust-lang/rust#63068) / portable SIMD, so expect it to
+   arrive nightly-gated first. The helpers are written to be deleted: each one is the
+   same selector the generated method will eventually expose, so call sites keep their
+   book-shaped names and only the helper module shrinks when upstream catches up.
 2. **`msg_send!` + `Encoding::None` does not work on released objc2 (≤ 0.6.4)** for simd
    arguments: the Obj-C runtime records an *empty* encoding for vector parameters, and
    the debug-build verifier rejects the call ("expected argument at index 0 to have type
