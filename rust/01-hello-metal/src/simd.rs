@@ -23,11 +23,15 @@ use core::arch::aarch64::{float32x4_t, uint32x2_t};
 
 /// A `vector_float3`: three floats in a 16-byte vector register.
 pub fn vector_float3(v: [f32; 3]) -> float32x4_t {
-    // Same size and bit layout ([f32; 4] -> q-register lane order).
+    // SAFETY: [f32; 4] and float32x4_t have the same size (16 bytes) and bit
+    // layout (array order = vector lane order); any bit pattern is a valid
+    // f32 lane.
     unsafe { core::mem::transmute::<[f32; 4], float32x4_t>([v[0], v[1], v[2], 0.0]) }
 }
 
 /// A `vector_uint2`: two u32s in an 8-byte vector register.
 pub fn vector_uint2(v: [u32; 2]) -> uint32x2_t {
+    // SAFETY: same as `vector_float3` — matching size (8 bytes) and lane
+    // layout, and any bit pattern is a valid u32 lane.
     unsafe { core::mem::transmute::<[u32; 2], uint32x2_t>(v) }
 }

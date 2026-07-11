@@ -242,8 +242,14 @@ define_class!(
     #[ivars = Ivars]
     struct Delegate;
 
+    // SAFETY: NSObjectProtocol has no required methods beyond what NSObject
+    // already provides.
     unsafe impl NSObjectProtocol for Delegate {}
 
+    // SAFETY: the method signatures below match the protocol's declarations
+    // (`applicationDidFinishLaunching:` takes an NSNotification;
+    // `applicationShouldTerminateAfterLastWindowClosed:` returns BOOL); all
+    // other protocol methods are optional.
     unsafe impl NSApplicationDelegate for Delegate {
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn application_did_finish_launching(&self, _notification: &NSNotification) {
@@ -265,8 +271,9 @@ define_class!(
                     false,
                 )
             };
-            // We keep the window alive in an ivar; don't let AppKit release
-            // it on close as well.
+            // SAFETY: `false` is the safe direction — it stops AppKit from
+            // releasing the window on close while our `Retained` ivar also
+            // holds (and will release) it.
             unsafe { window.setReleasedWhenClosed(false) };
 
             let device = MTLCreateSystemDefaultDevice().expect("GPU is not supported");
@@ -302,6 +309,9 @@ define_class!(
         }
     }
 
+    // SAFETY: both of MTKViewDelegate's required methods are implemented
+    // with signatures matching the protocol (`drawInMTKView:` and
+    // `mtkView:drawableSizeWillChange:`).
     unsafe impl MTKViewDelegate for Delegate {
         #[unsafe(method(drawInMTKView:))]
         fn draw_in_mtk_view(&self, view: &MTKView) {
