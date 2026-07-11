@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["01-hello-metal"]

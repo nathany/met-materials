@@ -227,7 +227,45 @@ and shadow-map matrices are one-liners with the correct clip space out of the bo
   (MPS/MetalFX) have dedicated crates — the only ecosystem where those chapters need no
   substitution.
 
-## 7. Milestones / verification
+## 7. Discoveries from porting chapter 1 (`rust/01-hello-metal/`)
+
+Lessons from the first working port (both playgrounds build and render with
+`MTL_DEBUG_LAYER=1` clean):
+
+1. **objc2 skips every method with simd types in its signature** ("simd types are not
+   yet possible in methods" in header-translator). That includes *all* of `MDLMesh`'s
+   procedural initializers (`initSphereWithExtent:…`, `newBox…`, planes), plus assorted
+   Model I/O/GameController surface. The workaround that works on stable Rust:
+   cast `objc2::ffi::objc_msgSend` to a function pointer with the exact C signature,
+   using `core::arch::aarch64::float32x4_t`/`uint32x2_t` for `vector_float3`/
+   `vector_uint2` (NEON register ABI matches). Pattern in
+   [`rust/01-hello-metal/src/lib.rs`](rust/01-hello-metal/src/lib.rs) (`sphere_mesh`) and
+   [`src/simd.rs`](rust/01-hello-metal/src/simd.rs). Ownership: `MDLMesh::alloc()` →
+   `Allocated::as_ptr` + `mem::forget` (init consumes the +1) → `Retained::from_raw`.
+   Expect to reuse this for later chapters' procedural primitives; consider promoting it
+   into the shared `common` crate when it grows a second caller.
+2. **`msg_send!` + `Encoding::None` does not work on released objc2 (≤ 0.6.4)** for simd
+   arguments: the Obj-C runtime records an *empty* encoding for vector parameters, and
+   the debug-build verifier rejects the call ("expected argument at index 0 to have type
+   code 'B', but found ''"). A fix exists upstream but is unreleased. Alternatives to the
+   raw-msgSend pattern: the `objc2/disable-encoding-assertions` feature (turns off a
+   safety net globally — not worth it) or pinning objc2 git (fights the published
+   framework-crate versions). Revisit when objc2 > 0.6.4 ships.
+3. **`final` is a reserved Rust keyword** — binaries can't be named `final`. Convention:
+   `chNN-final` / `chNN-challenge`.
+4. Small API-shape notes: `alloc()` on non-UI classes needs `use objc2::AnyThread`;
+   upcast a `CAMetalDrawable` for `presentDrawable` with
+   `ProtocolObject::from_ref(&*drawable)`; `NSArray` indexing is `.objectAtIndex(n)`
+   (panics in-runtime on out-of-bounds); set `window.setReleasedWhenClosed(false)` when
+   holding the `NSWindow` in a `Retained` ivar.
+5. The `#[improper_ctypes_definitions]` lint fires on SIMD types in `extern fn` types —
+   conservative; `#[allow]` it where the aarch64 NEON ABI is what you want.
+6. Playground chapters (1–2) have no run loop of their own; wrapping them in the
+   AppKit-delegate shell (drawing per-frame via `MTKViewDelegate`) matches what the
+   book's own projects do from chapter 3 onward, so the early ports double as the
+   template for later chapters.
+
+## 8. Milestones / verification
 
 1. **Prove the toolchain**: build and run objc2's own example from your checkout —
    `cargo run --package metal-examples --bin triangle` (or from `examples/metal/`) — a

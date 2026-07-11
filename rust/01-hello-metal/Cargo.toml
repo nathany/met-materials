@@ -1,0 +1,23 @@
+[package]
+name = "hello-metal"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# `final` is a reserved Rust keyword, so the binaries carry a ch01- prefix.
+[[bin]]
+name = "ch01-final"
+path = "src/bin/final.rs"
+
+[[bin]]
+name = "ch01-challenge"
+path = "src/bin/challenge.rs"
+
+[dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-metal = "0.3"
+objc2-metal-kit = "0.3"
+objc2-model-io = "0.3"
+objc2-quartz-core = "0.3"
