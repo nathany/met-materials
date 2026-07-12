@@ -1,0 +1,3 @@
+# Build artifacts (recreated by run.sh)
+*.o
+*.bin

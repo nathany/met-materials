@@ -5,8 +5,8 @@
 //
 // Every method here has a simd-free signature, which is what makes direct
 // binding possible — the one simd-typed call (the sphere initializer) lives
-// in shim/sphere_shim.m instead. See Metal-odin-port-plan.md §3.10.
-package hello_metal
+// in sphere_shim.m instead. See Metal-odin-port-plan.md §3.10.
+package modelio
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
@@ -17,16 +17,33 @@ foreign import "system:ModelIO.framework"
 @(require)
 foreign import MetalKitFW "system:MetalKit.framework"
 
-foreign import sphere_shim "shim/sphere_shim.o"
+foreign import sphere_shim "sphere_shim.o"
 
+@(private = "file")
 foreign sphere_shim {
-	// Returns a +1 (owned) MDLMesh; caller releases.
 	mbt_sphere_mesh :: proc "c" (
 		extent_x, extent_y, extent_z: f32,
 		segments_u, segments_v: u32,
 		inward_normals: bool,
 		allocator: ^MTKMeshBufferAllocator,
 	) -> ^MDLMesh ---
+}
+
+// MDLMesh(sphereWithExtent:segments:inwardNormals:geometryType:allocator:)
+// with geometryType fixed to .triangles. Returns a +1 (owned) MDLMesh, per
+// the Cocoa `new` naming convention; caller releases.
+new_sphere :: proc "c" (
+	extent: [3]f32,
+	segments: [2]u32,
+	inward_normals: bool,
+	allocator: ^MTKMeshBufferAllocator,
+) -> ^MDLMesh {
+	return mbt_sphere_mesh(
+		extent.x, extent.y, extent.z,
+		segments.x, segments.y,
+		inward_normals,
+		allocator,
+	)
 }
 
 foreign MetalKitFW {

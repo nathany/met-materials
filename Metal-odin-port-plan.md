@@ -121,12 +121,19 @@ hand-rolled compute shaders and port directly.
     flags the gap. Warnings from Apple-internal worker threads (e.g. the runtime shader
     compiler) are noise you can't fix.
 
-## 4. Suggested port structure
+## 4. Port structure (as implemented in `odin_port/`)
 
-- One Odin package per chapter (`01-hello-metal/`, …) sharing a `common/` package:
-  window/loop bootstrap, `mesh.odin` (cgltf → MTL buffers + vertex descriptor),
-  `texture.odin` (stb_image → `MTL.Texture` + mipmaps), `camera.odin`, `input.odin`,
-  `math.odin` (§5.4) — mirroring the book's per-project `Utility/` folder.
+- One Odin package per chapter (`01-hello-metal/`, …) plus shared packages under
+  `common/`, imported through a collection (`import mdl "common:modelio"`; `run.sh`
+  passes `-collection:common=common`). Organizing rule: **`common/` holds only plumbing
+  the book hides inside Apple frameworks** (Model I/O bindings + shim; later
+  `texture.odin`, `math.odin` §5.4, camera/input); anything the book teaches in-chapter
+  stays in the chapter package so each demo reads independently.
+- `run.sh <chapter>` compiles any `common/*/*.m` clang shims (needed only because of the
+  `#simd` ABI gap, §3.10), then `odin run`s the chapter. Both the shims and the modelio
+  bindings are deliberately disposable — the former if the ABI issue is fixed upstream,
+  the latter if Odin 2027 ships Obj-C framework coverage; bindings mirror vendor naming
+  so migration is an import swap.
 - An asset script converting the book's `.usdz` → `.glb` into a shared `assets/` dir.
 - Difficulty by chapter: **1–22** (rendering, lighting, shadows, deferred, PBR/IBL,
   tessellation, particles) port nearly 1:1. **23–24** (animation) need the most new code

@@ -5,9 +5,9 @@
 // AppKit application and redraws each frame via MTKView's delegate — the
 // structure the book's own projects use from chapter 3 onward.
 //
-// Build & run (the shim must be compiled first — see build.sh):
-//   ./build.sh                            # final: red sphere
-//   ./build.sh -define:CHALLENGE=true     # challenge: green ellipse
+// Build & run from odin_port/ (the script compiles common/ shims first):
+//   ./run.sh 01-hello-metal                          # final: red sphere
+//   ./run.sh 01-hello-metal -define:CHALLENGE=true   # challenge: green ellipse
 package hello_metal
 
 import "base:intrinsics"
@@ -16,6 +16,7 @@ import "core:fmt"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import MTK "vendor:darwin/MetalKit"
+import mdl "common:modelio"
 
 CHALLENGE :: #config(CHALLENGE, false)
 
@@ -70,21 +71,16 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	defer pool->release()
 
 	// let allocator = MTKMeshBufferAllocator(device: device)
-	allocator := MTKMeshBufferAllocator.alloc()->initWithDevice(device)
+	allocator := mdl.MTKMeshBufferAllocator.alloc()->initWithDevice(device)
 	defer allocator->release()
 
 	// let mdlMesh = MDLMesh(sphereWithExtent:segments:inwardNormals:geometryType:allocator:)
-	mdl_mesh := mbt_sphere_mesh(
-		SPHERE_EXTENT.x, SPHERE_EXTENT.y, SPHERE_EXTENT.z,
-		30, 30,
-		false,
-		allocator,
-	)
+	mdl_mesh := mdl.new_sphere(SPHERE_EXTENT, {30, 30}, false, allocator)
 	assert(mdl_mesh != nil, "failed to create MDLMesh sphere")
 	defer mdl_mesh->release()
 
 	// let mesh = try MTKMesh(mesh: mdlMesh, device: device)
-	mesh, mesh_err := MTKMesh.alloc()->initWithMesh(mdl_mesh, device)
+	mesh, mesh_err := mdl.MTKMesh.alloc()->initWithMesh(mdl_mesh, device)
 	fatal_on(mesh_err, "failed to convert MDLMesh to MTKMesh")
 	// Kept alive forever (never released): it owns the GPU buffers below.
 
@@ -106,9 +102,9 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	pipeline_descriptor->setVertexFunction(vertex_function)
 	pipeline_descriptor->setFragmentFunction(fragment_function)
 
-	// pipelineDescriptor.vertexDescriptor = MTKMetalVertexDescriptorFromModelIO(mesh.vertexDescriptor)
+	// pipelineDescriptor.vertexDescriptor = mdl.MTKMetalVertexDescriptorFromModelIO(mesh.vertexDescriptor)
 	pipeline_descriptor->setVertexDescriptor(
-		MTKMetalVertexDescriptorFromModelIO(mesh->vertexDescriptor()),
+		mdl.MTKMetalVertexDescriptorFromModelIO(mesh->vertexDescriptor()),
 	)
 
 	pipeline_state, pso_err := device->newRenderPipelineState(pipeline_descriptor)
@@ -117,10 +113,10 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 
 	// mesh.vertexBuffers[0].buffer / mesh.submeshes.first — the buffers are
 	// retained by the (immortal) mesh.
-	vertex_buffer := (^MTKMeshBuffer)(mesh->vertexBuffers()->object(0))
+	vertex_buffer := (^mdl.MTKMeshBuffer)(mesh->vertexBuffers()->object(0))
 	renderer.vertex_buffer = vertex_buffer->buffer()
 
-	submesh := (^MTKSubmesh)(mesh->submeshes()->object(0))
+	submesh := (^mdl.MTKSubmesh)(mesh->submeshes()->object(0))
 	index_buffer := submesh->indexBuffer()
 	renderer.index_count = submesh->indexCount()
 	renderer.index_type = submesh->indexType()
