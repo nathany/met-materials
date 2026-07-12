@@ -108,6 +108,12 @@ hand-rolled compute shaders and port directly.
     pure-Odin replacements (mesh generators, cgltf), which is what §2's gap table already
     recommends. Metal itself is unaffected (its API passes structs like `ClearColor`,
     never simd vectors by value).
+    **Update 2026-07-12:** reported as odin-lang/Odin#7010; fix PR #7015 (also covers
+    vector *aggregates*, i.e. `MDLAxisAlignedBoundingBox`-style structs) verified locally
+    against both repros — the minimal C case and the direct `objc_send` MDLMesh sphere
+    call. Once it ships in a release, delete `common/modelio/sphere_shim.m`, fold the
+    sphere call into the bindings as a plain `objc_send` with `#simd` args, and drop the
+    clang step from `run.sh`.
 11. **The vendor `MTKView` delegate bridge vs. autorelease pools** (found porting
     ch. 1): `MTKView.delegate` is a *weak* Obj-C property, and
     `vendor:darwin/MetalKit`'s `View_setDelegate` wraps your Odin `ViewDelegate` struct
