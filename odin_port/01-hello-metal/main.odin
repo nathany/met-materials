@@ -5,7 +5,7 @@
 // AppKit application and redraws each frame via MTKView's delegate — the
 // structure the book's own projects use from chapter 3 onward.
 //
-// Build & run from odin_port/ (the script compiles common/ shims first):
+// Build & run from odin_port/:
 //   ./run.sh 01-hello-metal                          # final: red sphere
 //   ./run.sh 01-hello-metal -define:CHALLENGE=true   # challenge: green ellipse
 package hello_metal

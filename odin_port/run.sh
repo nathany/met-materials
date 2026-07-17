@@ -2,12 +2,14 @@
 # Build and run a chapter:
 #   ./run.sh 01-hello-metal [-define:CHALLENGE=true] [odin flags...]
 #
-# Compiles the Objective-C shims in common/ (only needed because Odin's
-# #simd types don't follow the C vector ABI — see Metal-odin-port-plan.md
-# §3.10), then runs the chapter package with the `common` collection mapped
-# so chapters can `import "common:modelio"`.
+# The port needs the `#simd` C-ABI fix (odin-lang/Odin#7010 / PR #7015,
+# ships with dev-2026-08). Until Homebrew catches up, this defaults to the
+# locally built compiler; override with ODIN=odin once your PATH compiler is
+# new enough.
 set -e
 cd "$(dirname "$0")"
+
+ODIN="${ODIN:-$HOME/src/github.com/odin-lang/Odin/odin}"
 
 chapter="$1"
 if [ -z "$chapter" ] || [ ! -d "$chapter" ]; then
@@ -16,11 +18,4 @@ if [ -z "$chapter" ] || [ ! -d "$chapter" ]; then
 fi
 shift
 
-for shim in common/*/*.m; do
-	obj="${shim%.m}.o"
-	if [ ! -f "$obj" ] || [ "$shim" -nt "$obj" ]; then
-		clang -c "$shim" -o "$obj"
-	fi
-done
-
-odin run "$chapter" -collection:common=common "$@"
+"$ODIN" run "$chapter" -collection:common=common "$@"

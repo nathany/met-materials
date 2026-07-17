@@ -3,9 +3,9 @@
 // MTKMesh; these follow the same @(objc_class) / objc_send pattern as
 // vendor:darwin/Metal.
 //
-// Every method here has a simd-free signature, which is what makes direct
-// binding possible — the one simd-typed call (the sphere initializer) lives
-// in sphere_shim.m instead. See Metal-odin-port-plan.md §3.10.
+// Requires an Odin compiler with the `#simd` C-ABI fix (odin-lang/Odin#7010,
+// fixed by PR #7015; ships with dev-2026-08). Older compilers pass the
+// vector arguments below in the wrong registers.
 package modelio
 
 import "base:intrinsics"
@@ -17,31 +17,37 @@ foreign import "system:ModelIO.framework"
 @(require)
 foreign import MetalKitFW "system:MetalKit.framework"
 
-foreign import sphere_shim "sphere_shim.o"
+// Vector types as Apple's headers define them; vector_float3 is a
+// 16-byte-aligned three-lane vector, i.e. four lanes with the last ignored.
+vector_float3 :: #simd[4]f32
+vector_uint2 :: #simd[2]u32
 
-@(private = "file")
-foreign sphere_shim {
-	mbt_sphere_mesh :: proc "c" (
-		extent_x, extent_y, extent_z: f32,
-		segments_u, segments_v: u32,
-		inward_normals: bool,
-		allocator: ^MTKMeshBufferAllocator,
-	) -> ^MDLMesh ---
+MDLGeometryType :: enum NS.Integer {
+	Points         = 0,
+	Lines          = 1,
+	Triangles      = 2,
+	TriangleStrips = 3,
+	Quads          = 4,
 }
 
 // MDLMesh(sphereWithExtent:segments:inwardNormals:geometryType:allocator:)
-// with geometryType fixed to .triangles. Returns a +1 (owned) MDLMesh, per
-// the Cocoa `new` naming convention; caller releases.
+// with geometryType fixed to .Triangles. Returns a +1 (owned) MDLMesh, per
+// the Cocoa `new` naming convention; caller releases. Note: extent is the
+// per-axis radius (semi-axis), not the diameter.
 new_sphere :: proc "c" (
 	extent: [3]f32,
 	segments: [2]u32,
 	inward_normals: bool,
 	allocator: ^MTKMeshBufferAllocator,
 ) -> ^MDLMesh {
-	return mbt_sphere_mesh(
-		extent.x, extent.y, extent.z,
-		segments.x, segments.y,
+	return msgSend(
+		^MDLMesh,
+		MDLMesh.alloc(),
+		"initSphereWithExtent:segments:inwardNormals:geometryType:allocator:",
+		vector_float3{extent.x, extent.y, extent.z, 0},
+		vector_uint2{segments.x, segments.y},
 		inward_normals,
+		MDLGeometryType.Triangles,
 		allocator,
 	)
 }
@@ -62,6 +68,11 @@ MDLVertexDescriptor :: struct {
 @(objc_class = "MDLMesh")
 MDLMesh :: struct {
 	using _: NS.Object,
+}
+
+@(objc_type = MDLMesh, objc_name = "alloc", objc_is_class_method = true)
+MDLMesh_alloc :: proc "c" () -> ^MDLMesh {
+	return msgSend(^MDLMesh, MDLMesh, "alloc")
 }
 
 @(objc_class = "MTKMeshBufferAllocator")

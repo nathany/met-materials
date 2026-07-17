@@ -7,11 +7,18 @@ Odin ports of the book's sample projects, following
 
 ```
 odin_port/
-  run.sh              build + run a chapter (compiles common/ shims first)
+  run.sh              build + run a chapter
   common/             shared packages replacing Apple convenience frameworks
-    modelio/          hand-bound Model I/O / MTKMesh sliver + clang shim
+    modelio/          hand-bound Model I/O / MTKMesh sliver
   01-hello-metal/     one package per chapter
 ```
+
+**Compiler requirement:** the port needs the `#simd` C-ABI fix
+([odin-lang/Odin#7010](https://github.com/odin-lang/Odin/issues/7010), merged via
+[PR #7015](https://github.com/odin-lang/Odin/pull/7015), ships with dev-2026-08).
+`run.sh` defaults to the locally built compiler at
+`~/src/github.com/odin-lang/Odin/odin`; once your PATH compiler is new enough,
+run with `ODIN=odin ./run.sh …`.
 
 The organizing rule: **`common/` holds only plumbing the book hides inside
 Apple frameworks** (Model I/O bindings, later texture loading, math
@@ -42,22 +49,16 @@ MTL_DEBUG_LAYER=1 OBJC_DEBUG_MISSING_POOLS=YES ./run.sh 01-hello-metal
 |---|---|---|
 | [01-hello-metal](01-hello-metal/) | ch. 1 playgrounds (final + challenge) | Native AppKit + MTKView shell; Model I/O via `common:modelio` |
 
-## Why there's a C shim (and why `common/` may shrink)
+## About `common/modelio`
 
-Odin's `#simd` types do not follow the C vector calling convention on arm64
-(passed in general-purpose instead of SIMD registers — verified against both
-`objc_msgSend` and a clang-compiled control function; see plan §3.10, and the
-upstream issue filed against odin-lang/Odin). Any Apple API whose signature
-contains `vector_float3`-style parameters therefore can't be called from Odin
-directly; `common/modelio/sphere_shim.m` exposes those calls with scalar-only
-signatures, and `run.sh` compiles it with clang before `odin run`.
+Odin's vendor libraries bind Metal and MTKView but not Model I/O or the
+MTKMesh loaders, so this package hand-binds the needed sliver using the same
+`@(objc_class)` / `objc_send` pattern as `vendor:darwin/Metal` — including
+simd-signature calls like the sphere initializer, which is why the port needs
+the `#simd` ABI fix above. (The port originally worked around that compiler
+bug with a clang-compiled shim; the bug was found by this port, filed as
+#7010, and fixed upstream within a day — the shim is gone.)
 
-Everything with simd-free signatures (all of Metal, MTKView, the
-`MTKMesh`/`MDLMesh` accessors) is hand-bound in pure Odin using the same
-`@(objc_class)` pattern as `vendor:darwin/Metal`.
-
-Both halves of `common/modelio` are candidates for deletion: the shim goes
-away if the `#simd` ABI issue is fixed (the calls become plain `objc_send`),
-and the bindings go away if Odin 2027's "full core Objective-C library"
-effort ships Model I/O coverage. The bindings deliberately mirror the vendor
-naming style so that migration would be an import swap.
+These bindings deliberately mirror vendor naming, so if Odin 2027's "full
+core Objective-C library" effort ships Model I/O coverage, migration is an
+import swap and this package gets deleted.
