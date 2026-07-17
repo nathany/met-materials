@@ -150,6 +150,27 @@ hand-rolled compute shaders and port directly.
   fully supported by the bindings. **29 (MPS)** and **30 (MetalFX)** need hand-bindings
   or substitution.
 
+### Representative-sample plan (agreed 2026-07)
+
+Not porting all 31 chapters — a sample chosen to touch every distinct interop surface
+(where SIMD-FFI-class bugs live), skipping chapters that are new shader techniques on
+existing plumbing (MSL ports unchanged and exercises Odin not at all).
+
+- **Spine (in order):** 1 ✅ → 2 (MDLAsset I/O, class-as-argument) → 5 (CPU↔GPU structs,
+  absorbs 4) → 7 (hand-built vertex descriptors, absorbs 6) → 8 (materials,
+  MTKTextureLoader + NSDictionary options) → 9 (GameController: **blocks**,
+  NotificationCenter) → 10 (scene consolidation) → 19 (tessellation + first MPS) →
+  23+24 (skeletal animation: vector-aggregate `boundingBox`, matrix-array pointer
+  getters, protocol queries; hard pair, do together) → 28 (mesh pipeline descriptors —
+  likely first-ever user of those vendor bindings) → 29 (MPS class family).
+- **Optional:** 21 (`MDLSkyCubeTexture`, `vector_int2` lane type), 26 (ICB — same
+  first-user argument as 28), 30 (MetalFX scaler, ~50-line binding).
+- **Skip:** 3–4, 6 (subsumed); 11–18, 20, 22 (pure rendering technique, no new interop);
+  25, 27 (incremental over 24/26); 31 (no code). Skipping is reversible — a skipped
+  technique's shaders drop into the ported engine nearly verbatim.
+- Catch-up points where `common/` must leap a gap: 10→19 (small) and 19→23 (needs the
+  ch. 8–10 material/camera stack, already in the spine).
+
 ## 5. Math cheat sheet: Swift simd / MathLibrary → Odin
 
 ### 5.1 Types
