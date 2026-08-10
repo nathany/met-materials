@@ -16,7 +16,7 @@ odin_port/
 
 **Compiler requirement:** the port needs the `#simd` C-ABI fix
 ([odin-lang/Odin#7010](https://github.com/odin-lang/Odin/issues/7010), merged via
-[PR #7015](https://github.com/odin-lang/Odin/pull/7015), ships with dev-2026-08).
+[PR #7015](https://github.com/odin-lang/Odin/pull/7015) and included in dev-2026-08).
 `run.sh` defaults to the locally built compiler at
 `~/src/github.com/odin-lang/Odin/odin`; once your PATH compiler is new enough,
 run with `ODIN=odin ./run.sh …`.

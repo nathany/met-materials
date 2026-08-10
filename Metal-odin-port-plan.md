@@ -110,7 +110,7 @@ hand-rolled compute shaders and port directly.
     never simd vectors by value).
     **Resolved:** reported as odin-lang/Odin#7010 (2026-07-11); fix PR #7015 (params,
     returns, and vector *aggregates* — `MDLAxisAlignedBoundingBox`-style structs)
-    **merged**, ships with dev-2026-08. Verified locally against both repros. The port's
+    **merged** and included in Odin dev-2026-08. Verified locally against both repros. The port's
     C shim has been removed — simd-signature selectors are now called directly via
     `objc_send` with `#simd` types (`common/modelio/new_sphere`), and `run.sh` uses the
     locally built compiler until Homebrew ships dev-2026-08. This unblocks direct
@@ -135,15 +135,16 @@ hand-rolled compute shaders and port directly.
 - One Odin package per chapter (`01-hello-metal/`, …) plus shared packages under
   `common/`, imported through a collection (`import mdl "common:modelio"`; `run.sh`
   passes `-collection:common=common`). Organizing rule: **`common/` holds only plumbing
-  the book hides inside Apple frameworks** (Model I/O bindings + shim; later
+  the book hides inside Apple frameworks** (direct Model I/O bindings; later
   `texture.odin`, `math.odin` §5.4, camera/input); anything the book teaches in-chapter
   stays in the chapter package so each demo reads independently.
-- `run.sh <chapter>` compiles any `common/*/*.m` clang shims (needed only because of the
-  `#simd` ABI gap, §3.10), then `odin run`s the chapter. Both the shims and the modelio
-  bindings are deliberately disposable — the former if the ABI issue is fixed upstream,
-  the latter if Odin 2027 ships Obj-C framework coverage; bindings mirror vendor naming
+- `run.sh <chapter>` invokes Odin dev-2026-08 or later directly; no clang shim is needed
+  now that the `#simd` ABI fix is included (§3.10). The Model I/O bindings are deliberately
+  disposable if Odin later ships equivalent framework coverage, and mirror vendor naming
   so migration is an import swap.
-- An asset script converting the book's `.usdz` → `.glb` into a shared `assets/` dir.
+- No asset-conversion step is currently needed: the samples load the original `.usdz`
+  files directly through Model I/O. A USDZ → glTF conversion script remains an optional
+  fallback if a future port needs to avoid Model I/O.
 - Difficulty by chapter: **1–22** (rendering, lighting, shadows, deferred, PBR/IBL,
   tessellation, particles) port nearly 1:1. **23–24** (animation) need the most new code
   (glTF skin/keyframe sampling). **25–28** (bindless, ICB, GPU-driven, mesh shaders) are

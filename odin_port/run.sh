@@ -2,8 +2,8 @@
 # Build and run a chapter:
 #   ./run.sh 01-hello-metal [-define:CHALLENGE=true] [odin flags...]
 #
-# The port needs the `#simd` C-ABI fix (odin-lang/Odin#7010 / PR #7015,
-# ships with dev-2026-08). Until Homebrew catches up, this defaults to the
+# The port needs the `#simd` C-ABI fix (odin-lang/Odin#7010 / PR #7015),
+# included in dev-2026-08. Until Homebrew catches up, this defaults to the
 # locally built compiler; override with ODIN=odin once your PATH compiler is
 # new enough.
 set -e
