@@ -11,6 +11,7 @@ odin_port/
   common/             shared packages replacing Apple convenience frameworks
     modelio/          hand-bound Model I/O / MTKMesh sliver
   01-hello-metal/     one package per chapter
+  02-3d-models/
 ```
 
 **Compiler requirement:** the port needs the `#simd` C-ABI fix
@@ -35,6 +36,9 @@ Chapters import shared packages through a collection:
 cd odin_port
 ./run.sh 01-hello-metal                          # final: red sphere
 ./run.sh 01-hello-metal -define:CHALLENGE=true   # challenge: green ellipse
+./run.sh 02-3d-models                            # import train.usdz
+./run.sh 02-3d-models -define:EXPORT_CONE=true   # render + export generatedCone.usda
+./run.sh 02-3d-models -define:CHALLENGE=true     # import mushroom.usdz
 ```
 
 With Metal validation while developing:
@@ -48,13 +52,14 @@ MTL_DEBUG_LAYER=1 OBJC_DEBUG_MISSING_POOLS=YES ./run.sh 01-hello-metal
 | Package | Book project | Notes |
 |---|---|---|
 | [01-hello-metal](01-hello-metal/) | ch. 1 playgrounds (final + challenge) | Native AppKit + MTKView shell; Model I/O via `common:modelio` |
+| [02-3d-models](02-3d-models/) | ch. 2 playgrounds (two final pages + challenge) | Procedural cone/export; position-only USDZ import; every imported submesh rendered |
 
 ## About `common/modelio`
 
 Odin's vendor libraries bind Metal and MTKView but not Model I/O or the
 MTKMesh loaders, so this package hand-binds the needed sliver using the same
 `@(objc_class)` / `objc_send` pattern as `vendor:darwin/Metal` — including
-simd-signature calls like the sphere initializer, which is why the port needs
+simd-signature calls like the sphere and cone initializers, which is why the port needs
 the `#simd` ABI fix above. (The port originally worked around that compiler
 bug with a clang-compiled shim; the bug was found by this port, filed as
 #7010, and fixed upstream within a day — the shim is gone.)

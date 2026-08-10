@@ -156,7 +156,7 @@ Not porting all 31 chapters — a sample chosen to touch every distinct interop 
 (where SIMD-FFI-class bugs live), skipping chapters that are new shader techniques on
 existing plumbing (MSL ports unchanged and exercises Odin not at all).
 
-- **Spine (in order):** 1 ✅ → 2 (MDLAsset I/O, class-as-argument) → 5 (CPU↔GPU structs,
+- **Spine (in order):** 1 ✅ → 2 ✅ (MDLAsset I/O, class-as-argument) → 5 (CPU↔GPU structs,
   absorbs 4) → 7 (hand-built vertex descriptors, absorbs 6) → 8 (materials,
   MTKTextureLoader + NSDictionary options) → 9 (GameController: **blocks**,
   NotificationCenter) → 10 (scene consolidation) → 19 (tessellation + first MPS) →
