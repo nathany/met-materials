@@ -53,15 +53,23 @@ correctness improvements without changing the lesson's behavior.
 - Distinguish packed vertex-descriptor data from GPU-shared structs and foreign
   by-value ABI types. Check sizes, alignments, member offsets, and strides;
   a Metal `float3x3` is not a tightly packed Odin `matrix[3,3]f32`.
-- Preserve the Swift failure checks and use actual mesh-buffer offsets.
+- Preserve the Swift failure checks and use actual mesh-buffer offsets. Missing
+  drawables/render-pass descriptors should skip a frame, not terminate the app.
+- `when` introduces no scope; its defers run at the enclosing scope's end. Keep
+  persistent paths/data out of temporary allocators when callers retain them.
+- Pause/detach the MTKView before teardown. The vendor `setDelegate(nil)` wraps
+  a nil Odin pointer; clear the Objective-C delegate directly. Define who releases
+  the window on close, and reset borrowed references after their owner is freed.
 
-## Verification and documentation
+## Verification
 
 - The root `Justfile` uses `odin` on PATH; `ODIN=/path/to/odin` overrides it.
-  Current minimum is dev-2026-08; dev-2026-09 has been smoke-tested.
+  Require Odin dev-2026-09 or newer.
 - Run `just check` to check all five variants with
   `odin check -strict-style -warnings-as-errors`. Use
   `just check-chapter <chapter> [flags...]` for a focused check.
+  Defines affect semantic checking through `#config` and `when`; check each
+  supported combination. Extend the Justfile matrix as variants are added.
   Chapter 1 has default/challenge variants; chapter 2 has default/export/challenge
   variants. Do not combine chapter 2's defines. The Justfile sets the working
   directory to `odin_port/` and maps `-collection:common=common`.
@@ -75,18 +83,47 @@ correctness improvements without changing the lesson's behavior.
 - For rendering/interop changes, run the affected variants with
   `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1`, inspect the output, and check exit
   behavior. Compilation alone does not validate the foreign ABI or rendering.
-- A sandbox may hide the GPU. Distinguish environment failures from port bugs.
-  Attribute autorelease warnings using evidence rather than dismissing them.
+- A sandbox may hide the GPU; a locked desktop can suspend draw callbacks.
+  Distinguish unavailable execution from a pass. Attribute autorelease warnings
+  using evidence rather than dismissing them.
 - Put temporary binaries and diagnostics outside tracked source directories.
   Preserve existing exports when testing the cone variant.
 - Use focused tests for memory lifetimes, layout, math conventions, and regressions.
   Compare math helpers against the Swift reference and boundary values.
-- Keep `Metal-odin-port-plan.md` for the human reader: chapter mappings, expected
-  output, prerequisites, and explained differences. Put agent workflow here and
-  dated audit/verification details in separate reports.
-- Distinguish implemented and tested behavior from future binding plans. Update
-  superseded advice rather than appending contradictory historical notes.
-- Keep open findings and their verification criteria in root `KNOWN_ISSUES.md`.
-  Keep dated audit reports as evidence. Evaluate automated review comments
-  against the actual revision and reference-implementation criteria; distinguish
-  local changes from fixes published to a pull request.
+
+## Documentation responsibilities
+
+- `Metal-Odin-Guide.md` supplements the book for readers using Odin. Keep language,
+  framework, math, and ownership explanations independent of the reference
+  implementation's structure or completion status. Mention the reference as an
+  optional companion; keep development priorities and audit history out of it.
+- `odin_port/README.md` documents the reference implementation: requirements,
+  available chapters, commands, defines, and runtime expectations. Chapter READMEs
+  provide exact Swift links, expected output, deliberate differences, and controls
+  such as keyboard/mouse mappings when a demo introduces them.
+- `AGENTS.md` holds project conventions and the porting workflow. Focused skills
+  hold review procedures. Report validation and findings in the task or PR;
+  avoid adding dated audit reports or a completed-issue registry unless requested.
+- Keep requirements current instead of retaining resolved compiler-bug history.
+  We hope Odin 2027 expands framework coverage; inspect the installed packages
+  and compare signatures/ownership before migrating custom bindings.
+
+## Adding a chapter
+
+Compare the target Swift project's files, assets, shaders, and carried-forward
+concepts with the preceding port. Keep starter/final/challenge variants identifiable.
+Explain prerequisites when jumping chapters; do not hide missing rendering lessons
+inside `common/`. Add commands and any controls to the reference documentation,
+and add language/framework explanations to the guide only when readers need them.
+
+The reference's planned priorities after chapters 1–2 are 5, 7, 8, 9, 10, 19,
+23–24, 28, and 29, with 21, 26, and 30 optional. These are implementation priorities,
+not a suggested reading order or a claim of completed coverage.
+
+## Review skill
+
+For a requested code review, ownership audit, or evaluation of automated review
+comments, use [metal-odin-review](.agents/skills/metal-odin-review/SKILL.md).
+It contains focused regression techniques and criteria for comparing Odin with
+the selected Swift example. A review does not by itself authorize implementation
+changes or posting comments to an external service.

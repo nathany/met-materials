@@ -3,9 +3,7 @@
 // MTKMesh; these follow the same @(objc_class) / objc_send pattern as
 // vendor:darwin/Metal.
 //
-// Requires Odin dev-2026-08 or later, which includes the `#simd` C-ABI fix
-// (odin-lang/Odin#7010, fixed by PR #7015). Older compilers pass the
-// vector arguments below in the wrong registers.
+// Requires Odin dev-2026-09 or newer.
 package modelio
 
 import "base:intrinsics"
