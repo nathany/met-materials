@@ -146,6 +146,7 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	// Keep this owned MTKMesh alive: it owns the GPU buffers referenced below.
 
 	renderer.command_queue = device->newCommandQueue()
+	assert(renderer.command_queue != nil, "failed to create Metal command queue")
 
 	source := NS.String.alloc()->initWithOdinString(SHADER_SOURCE)
 	defer source->release()
@@ -202,6 +203,7 @@ file_url :: proc(path: string) -> ^NS.URL {
 }
 
 draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
+	context = runtime.default_context()
 	pool := NS.AutoreleasePool.alloc()->init()
 	defer pool->release()
 
@@ -212,7 +214,9 @@ draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
 	}
 
 	command_buffer := renderer.command_queue->commandBuffer()
+	assert(command_buffer != nil, "failed to create Metal command buffer")
 	encoder := command_buffer->renderCommandEncoderWithDescriptor(descriptor)
+	assert(encoder != nil, "failed to create Metal render command encoder")
 	encoder->setRenderPipelineState(renderer.pipeline_state)
 	encoder->setVertexBuffer(renderer.vertex_buffer, 0, 0)
 	encoder->setTriangleFillMode(.Lines)

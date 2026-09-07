@@ -85,6 +85,7 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	// Kept alive forever (never released): it owns the GPU buffers below.
 
 	renderer.command_queue = device->newCommandQueue()
+	assert(renderer.command_queue != nil, "failed to create Metal command queue")
 
 	source := NS.String.alloc()->initWithOdinString(SHADER_SOURCE)
 	defer source->release()
@@ -125,6 +126,7 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 }
 
 draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
+	context = runtime.default_context()
 	// One pool per frame: drains the autoreleased drawable & command buffer.
 	pool := NS.AutoreleasePool.alloc()->init()
 	defer pool->release()
@@ -136,7 +138,9 @@ draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
 	}
 
 	command_buffer := renderer.command_queue->commandBuffer()
+	assert(command_buffer != nil, "failed to create Metal command buffer")
 	encoder := command_buffer->renderCommandEncoderWithDescriptor(descriptor)
+	assert(encoder != nil, "failed to create Metal render command encoder")
 
 	encoder->setRenderPipelineState(renderer.pipeline_state)
 	encoder->setVertexBuffer(renderer.vertex_buffer, 0, 0)

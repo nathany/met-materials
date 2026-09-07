@@ -12,17 +12,18 @@ idiomatic Odin, and near parity with the corresponding Swift example. Small
 correctness improvements should be explained; a second engine or asset pipeline
 should not be introduced just to address advice about an obsolete example.
 
-## Open implementation findings
+## Implementation findings
 
 | ID | Priority | Finding | Status |
 |---|---|---|---|
-| KI-001 | P2 | Missing command-creation failure checks | Open; accepted |
+| KI-001 | P2 | Missing command-creation failure checks | Fixed; verified |
 | KI-002 | P2 | Vertex-buffer offsets are discarded | Open; accepted |
 | KI-003 | P2 | Renderer ownership and destruction are incomplete | Open; accepted for reference quality |
 
 P2 means a correction planned for the reference implementation, not a claim
 that the supplied demos currently crash. All five variants rendered in the
-earlier verification; none of these source fixes has been applied yet.
+earlier verification. The descriptions below preserve the original findings;
+resolution notes record the fixes and their verification.
 
 ### KI-001: Missing command-creation failure checks
 
@@ -44,6 +45,12 @@ descriptor is temporarily unavailable; that existing behavior is appropriate.
 the failure paths with controlled test instrumentation and verify a diagnostic
 instead of silent continuation. A temporarily unavailable drawable must still
 skip the frame safely.
+
+**Resolution (2026-09-07):** both chapters now check all three command-creation
+results; draw callbacks establish their Odin context. All five images match the
+baseline byte for byte under ASan and Metal validation. Injected nil results
+exercise all six failure sites; injected missing descriptors/drawables skip
+safely and recover. See the [fix verification](odin_port/fix-verification-2026-09.md).
 
 ### KI-002: Vertex-buffer offsets are discarded
 
