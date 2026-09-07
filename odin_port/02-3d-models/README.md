@@ -33,6 +33,10 @@ the shader's `.Float3` input. GPU-shared structs need a separate layout review;
 do not copy this stride into a `Common.h` translation. The `position.y -= 1.0`
 shader adjustment and red wireframe appearance are preserved.
 
+Both vertex and index buffers preserve their MetalKit offsets. The vertex offset
+is a small improvement over Swift's zero assumption, allowing shared Metal
+buffers whose mesh data begins at a nonzero offset.
+
 ## Ownership to notice
 
 `when` is compile-time selection and does not introduce a scope: the asset and
@@ -41,4 +45,5 @@ alive for the whole process, preserving the buffers cached in `Renderer`.
 The Odin submesh array also persists until process exit. These are bounded in
 this single-initialization example; they need explicit destruction before a
 reloadable renderer is introduced. See the [audit](../audit-2026-09.md) for the
-remaining failure-check and vertex-offset findings.
+original findings and their evidence; current statuses are in
+[KNOWN_ISSUES.md](../../KNOWN_ISSUES.md).

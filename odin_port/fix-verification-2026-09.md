@@ -26,3 +26,20 @@ Pixel comparisons use identical capture instrumentation on both revisions.
 Harness commands: `python3 /tmp/met-fixes/verify.py fix1`, then the `fail-queue`,
 `fail-buffer`, `fail-encoder`, and `skip` modes with `sphere train` arguments.
 The harness is temporary test instrumentation, not part of the chapter API.
+
+## KI-002: Vertex-buffer offsets
+
+- All five variants pass `just check` and the ASan/Metal validation runtime checks.
+  Their captured pixels match the baseline byte for byte.
+- Temporary instrumentation uses `MTKMeshBufferAllocator.newZone:` and
+  `newBufferFromZone:length:type:` to allocate padding followed by the vertex
+  data. Copy the original bytes into that allocation and substitute the actual
+  MTKMeshBuffer before the renderer extracts its buffer and offset. Assert that
+  the reported offset is nonzero. All five images still match the baseline.
+- As a negative control, bind that same buffer at zero in the sphere and train.
+  Both yield the clear-color image, rather than the baseline geometry. The
+  padding is larger than the mesh so zero binding cannot accidentally produce
+  a similar silhouette from shifted vertices.
+
+Harness modes: `fix2`, `offset`, and `offset-broken sphere train`. The temporary
+zone allocation is test input, not a new production allocator or asset path.

@@ -75,6 +75,7 @@ Renderer :: struct {
 	command_queue:  ^MTL.CommandQueue,
 	pipeline_state: ^MTL.RenderPipelineState,
 	vertex_buffer:  ^MTL.Buffer,
+	vertex_offset:  NS.UInteger,
 	submeshes:      [dynamic]Submesh,
 }
 
@@ -173,6 +174,8 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 
 	vertex_buffer := (^mdl.MTKMeshBuffer)(mesh->vertexBuffers()->object(0))
 	renderer.vertex_buffer = vertex_buffer->buffer()
+	// MTKMeshBuffers may share a Metal buffer; preserve this mesh's start.
+	renderer.vertex_offset = vertex_buffer->offset()
 
 	submeshes := mesh->submeshes()
 	for index in 0 ..< submeshes->count() {
@@ -218,7 +221,7 @@ draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
 	encoder := command_buffer->renderCommandEncoderWithDescriptor(descriptor)
 	assert(encoder != nil, "failed to create Metal render command encoder")
 	encoder->setRenderPipelineState(renderer.pipeline_state)
-	encoder->setVertexBuffer(renderer.vertex_buffer, 0, 0)
+	encoder->setVertexBuffer(renderer.vertex_buffer, renderer.vertex_offset, 0)
 	encoder->setTriangleFillMode(.Lines)
 
 	for submesh in renderer.submeshes {

@@ -17,7 +17,7 @@ should not be introduced just to address advice about an obsolete example.
 | ID | Priority | Finding | Status |
 |---|---|---|---|
 | KI-001 | P2 | Missing command-creation failure checks | Fixed; verified |
-| KI-002 | P2 | Vertex-buffer offsets are discarded | Open; accepted |
+| KI-002 | P2 | Vertex-buffer offsets are discarded | Fixed; verified |
 | KI-003 | P2 | Renderer ownership and destruction are incomplete | Open; accepted for reference quality |
 
 P2 means a correction planned for the reference implementation, not a claim
@@ -73,6 +73,13 @@ small improvement over the Swift example. Keep the chapter's mesh/shader behavio
 **Acceptance:** preserve the five current images and validate a controlled case
 with nonzero vertex-buffer offset. Do not count the current zero-offset assets
 alone as verification of the fix.
+
+**Resolution (2026-09-07):** both renderers preserve the MetalKit vertex-buffer
+offset and pass it to `setVertexBuffer`. All five baseline images remain byte
+identical, including when real MetalKit zone allocations place the vertex data
+after a padding buffer. Restoring a zero binding in the controlled sphere/train
+cases produces blank images, confirming that the regression check detects the
+bug. See the [fix verification](odin_port/fix-verification-2026-09.md).
 
 ### KI-003: Renderer ownership and destruction are incomplete
 

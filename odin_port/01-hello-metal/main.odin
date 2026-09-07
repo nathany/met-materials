@@ -55,6 +55,7 @@ Renderer :: struct {
 	command_queue:  ^MTL.CommandQueue,
 	pipeline_state: ^MTL.RenderPipelineState,
 	vertex_buffer:  ^MTL.Buffer,
+	vertex_offset:  NS.UInteger,
 	index_count:    NS.UInteger,
 	index_type:     MTL.IndexType,
 	index_buffer:   ^MTL.Buffer,
@@ -116,6 +117,8 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	// retained by the (immortal) mesh.
 	vertex_buffer := (^mdl.MTKMeshBuffer)(mesh->vertexBuffers()->object(0))
 	renderer.vertex_buffer = vertex_buffer->buffer()
+	// MTKMeshBuffers may share a Metal buffer; preserve this mesh's start.
+	renderer.vertex_offset = vertex_buffer->offset()
 
 	submesh := (^mdl.MTKSubmesh)(mesh->submeshes()->object(0))
 	index_buffer := submesh->indexBuffer()
@@ -143,7 +146,7 @@ draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
 	assert(encoder != nil, "failed to create Metal render command encoder")
 
 	encoder->setRenderPipelineState(renderer.pipeline_state)
-	encoder->setVertexBuffer(renderer.vertex_buffer, 0, 0)
+	encoder->setVertexBuffer(renderer.vertex_buffer, renderer.vertex_offset, 0)
 	encoder->drawIndexedPrimitives(
 		.Triangle,
 		renderer.index_count,

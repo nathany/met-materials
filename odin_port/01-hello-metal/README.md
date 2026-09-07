@@ -27,8 +27,10 @@ no lighting yet; the flat appearance matches the playground.
 
 The delegate redraws continuously instead of submitting just one frame. The
 pipeline uses the view's pixel format, whose default matches the Swift example.
-The index buffer uses its reported offset; the vertex offset still assumes zero
-as in Swift. The tested sphere uses offset zero and one submesh.
+Both vertex and index buffers use their reported offsets. Preserving the vertex
+offset is a small correctness improvement over Swift: MetalKit may allocate
+several mesh buffers inside one Metal buffer. The supplied sphere uses offset
+zero and one submesh.
 
 ## Ownership to notice
 
