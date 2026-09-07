@@ -1,4 +1,4 @@
-# Odin reference implementation of *Metal by Tutorials* (5th ed.)
+# *Metal by Tutorials* (5th ed.) Supplementary Guide for Odin
 
 This port provides an Odin reference implementation of the book's Swift examples.
 The goal is near parity in rendering, assets, and concepts, expressed with Odin
