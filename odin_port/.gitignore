@@ -1,0 +1,7 @@
+# Build artifacts (recreated by the Justfile)
+*.o
+*.bin
+*.dSYM/
+
+# Chapter 2's export playground output
+generatedCone.usda
