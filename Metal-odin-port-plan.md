@@ -1,176 +1,199 @@
-# Porting *Metal by Tutorials* (5th ed.) to Odin
+# Odin reference implementation of *Metal by Tutorials* (5th ed.)
 
-A feasibility assessment and working plan for reimplementing the book's Swift/Metal sample
-projects in [Odin](https://odin-lang.org), based on a survey of this repo (31 chapters,
-72 Xcode projects) and the Odin repo's `core`/`vendor` libraries (as of July 2026).
+This port provides an Odin reference implementation of the book's Swift examples.
+The goal is near parity in rendering, assets, and concepts, expressed with Odin
+structs, procedures, and explicit ownership. Readers may review and run these
+implementations alongside the book, and choose whether to write their own for
+educational purposes. This document maps the reference code to the book; it is
+not a required sequence of implementation exercises.
 
-**Verdict: very feasible.** Odin's `vendor:darwin/Metal` binding covers every GPU feature
-the book teaches, through the most advanced chapters (mesh shaders, indirect command
-buffers). The ~299 `.metal` shader files — most of the book's real content — port
-**unchanged**. The porting work is replacing Apple's *convenience* frameworks: Model I/O's
-USD asset pipeline, MetalKit's mesh/texture loaders, and the SwiftUI windowing shell.
+As of September 2026, chapters **1 and 2** are implemented and their five variants
+run with Odin dev-2026-09. Later chapters below are a porting plan, not a claim of
+working coverage. See [running instructions](odin_port/README.md), the
+[compiler verification](odin_port/verification-2026-09.md), and the
+[code and plan audit](odin_port/audit-2026-09.md). Open findings and the CodeRabbit
+review assessment are tracked in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
----
+## 1. How to read the current ports
 
-## 1. What the book depends on
+Open the matching Swift page beside the chapter's `main.odin`. Follow the same
+sequence: create the device/view, make or import a Model I/O mesh, convert it to
+MTKMesh, compile the shaders, build the pipeline, encode the draw, and present.
+In Odin, `renderer_init` contains setup and `draw` contains command encoding.
+`main` supplies the native window that replaces PlaygroundSupport's live view.
 
-Zero third-party dependencies — 100% Apple frameworks:
-
-| Dependency | Used for | Weight |
+| Odin variant | Swift reference | Expected output |
 |---|---|---|
-| **Metal / MetalKit** | everything; `MTKView` (909 refs), `MTKMesh` (379), `MTKTextureLoader` (265) | core |
-| **Model I/O** | USD/OBJ import, `MDLVertexDescriptor` (213 refs), procedural primitives (`MDLMesh.newBox`…), `addNormals`/`addTangentBasis`, **skeletal data** (`MDLSkeleton`, `MDLPackedJointAnimation`, ch. 23–24) | heavy |
-| **SwiftUI + Observation** | window shell (`NS/UIViewRepresentable` around MTKView), app state | replaceable |
-| **GameController** | `GCKeyboard`/`GCMouse` camera input | trivial |
-| **simd + MathLibrary.swift** | 236-line column-major math helper, copied into all 60 projects | trivial (see cheat sheet, §5) |
-| **MetalPerformanceShaders** | ch. 29 only: Sobel, Gaussian blur, threshold, matrix multiply | isolated |
-| **MetalFX** | ch. 30 only: spatial/temporal upscalers | isolated |
+| `01-hello-metal` | [Chapter 1 final](01-hello-metal/projects/final/Chapter1.playground/Contents.swift) | Solid red sphere silhouette |
+| `01-hello-metal -define:CHALLENGE=true` | [Chapter 1 challenge](01-hello-metal/projects/challenge/Chapter1.playground/Contents.swift) | Tall green ellipse |
+| `02-3d-models -define:EXPORT_CONE=true` | [Chapter 2, page 1](<02-3d-models/projects/final/Chapter2.playground/Pages/1 Render and Export 3D Model.xcplaygroundpage/Contents.swift>) | Wireframe cone; exports `generatedCone.usda` |
+| `02-3d-models` | [Chapter 2, page 2](<02-3d-models/projects/final/Chapter2.playground/Pages/2 Import Train.xcplaygroundpage/Contents.swift>) | Wireframe train |
+| `02-3d-models -define:CHALLENGE=true` | [Chapter 2 challenge](<02-3d-models/projects/challenge/Chapter2.playground/Pages/Import Mushroom.xcplaygroundpage/Contents.swift>) | Wireframe mushroom |
 
-Assets: **USDZ dominates** (101 `.usdz` + 48 `.usd/.usda`; only 6 `.obj` in the early
-playgrounds), 549 PNG/JPG textures, cube maps as PNG sets in `.xcassets`. No HDR/KTX/glTF.
-No GameplayKit, no ray tracing, no physics engine — flocking/particles (ch. 17–18) are
-hand-rolled compute shaders and port directly.
+For chapter 2, start with the export variant to follow page order, even though
+the default command imports the train. The export overwrites the file of that
+name in `odin_port/`; the Swift playground writes to its shared-data directory.
 
-## 2. What Odin provides
+### Deliberate differences to notice
 
-### Covered well
+- Swift's playground submits one frame. The native AppKit/MTKView shell redraws
+  through a delegate so the window continues to display correctly. This is
+  platform support, not an additional rendering lesson.
+- Compile-time `CHALLENGE` / `EXPORT_CONE` settings select the corresponding book
+  pages. They are mutually exclusive in chapter 2.
+- Odin spells Metal types without their Objective-C prefixes: `MTL.Device`,
+  `MTL.RenderPipelineDescriptor`, and `.Triangle`. A call such as
+  `device->newCommandQueue()` corresponds to Swift's `device.makeCommandQueue()`.
+- Chapter 2 requests tightly packed, 12-byte position vertices instead of Swift's
+  16-byte `SIMD3<Float>` stride. This is valid because the vertex descriptor and
+  imported data agree; the vertex shader fetches `.Float3` through `[[stage_in]]`.
+  It is not a license to use 12-byte `float3` fields in GPU-shared structs.
+- Both imports use the first MDLMesh, just like the Swift pages; chapter 2 draws
+  every submesh of that mesh. This is not yet a scene-hierarchy loader.
+- The cone branch also draws every submesh, whereas its Swift page selects the
+  first. The supplied generated cone renders equivalently. Keep this distinction
+  visible if the geometry changes.
+- The pipeline uses the view's pixel format instead of repeating `.bgra8Unorm`.
+  The default view format matches the Swift example.
 
-- **Metal** — `vendor:darwin/Metal`: a metal-cpp-style port, ~9,400 lines, 142 classes.
-  Compute, blit, argument buffers, function constants, **indirect command buffers
-  (ch. 26)**, **mesh pipelines (ch. 28)**, acceleration structures. Everything bindable.
-- **MTKView** — `vendor:darwin/MetalKit` binds `MTKView` plus a working `ViewDelegate`
-  bridge (`drawInMTKView` / `drawableSizeWillChange` as Odin callbacks).
-- **CAMetalLayer** — `vendor:darwin/QuartzCore`.
-- **Windowing** — `vendor:sdl2` / `vendor:sdl3` have first-class Metal surfaces
-  (`Metal_CreateView`, `Metal_GetLayer`); GLFW exposes `GetCocoaWindow`; or go native via
-  `core:sys/darwin/Foundation` (NSApplication/NSWindow/NSView are all bound).
-- **Math** — `core:math/linalg` (+ `glsl`/`hlsl` sub-packages) replaces MathLibrary.swift
-  and simd. Column-major native `matrix` type (`#row_major` exists; not needed for Metal).
-  See the cheat sheet in §5 — including two conventions traps.
-- **Textures** — `vendor:stb/image` decodes PNG/JPG; upload via `texture->replaceRegion`.
-- **Noise** — `core:math/noise` (OpenSimplex2), if wanted for terrain experiments.
-- **Obj-C interop** — first-class: `@(objc_class)` structs, `->` selector-call sugar,
-  blocks (`intrinsics.objc_block`), runtime subclassing (`NS.class_addMethod` etc.) for
-  implementing delegates.
+## 2. Framework strategy
 
-### Gaps to engineer around
+Keep the book's Apple-framework pipeline. Narrow bindings let the reader compare
+an Odin call with the Swift call without first learning a replacement engine.
+The earlier SIMD calling-convention blocker was fixed in dev-2026-08
+([issue #7010](https://github.com/odin-lang/Odin/issues/7010),
+[PR #7015](https://github.com/odin-lang/Odin/pull/7015)); a clang shim and USDZ-to-glTF
+conversion are no longer required.
 
-| Gap                                             | Replacement strategy                                                                                                                                                                                                                                                                                                                            |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model I/O / USD** (the big one)               | Convert assets once: USDZ → glTF (`usdcat`/Blender CLI/`usd2gltf`), load with `vendor:cgltf`. glTF carries skins + joint animations, so the ch. 23–24 skeletal data survives conversion; keyframe sampling + skinning matrices are hand-written with `linalg` (the book already hand-rolls `AnimationClip` sampling on top of MDL data anyway). |
-| `MTKMesh` / `MDLVertexDescriptor`               | Own `Mesh` struct: cgltf accessors → `device->newBufferWithSlice(...)` + a hand-built `MTL.VertexDescriptor`. More explicit than Swift — arguably better pedagogy.                                                                                                                                                                              |
-| Model I/O tangent generation                    | MikkTSpace (small C lib, trivial to bind) or export tangents into the glTF.                                                                                                                                                                                                                                                                     |
-| Procedural primitives (`newBox`, sphere, plane) | Small generators written once, or export primitives as glTF.                                                                                                                                                                                                                                                                                    |
-| `MTKTextureLoader` + mipmaps                    | stb_image → `replaceRegion`; mipmaps via `BlitCommandEncoder->generateMipmaps`. Cube maps: 6 PNG faces → `.Cube` texture slices.                                                                                                                                                                                                                |
-| SwiftUI shell                                   | SDL2/SDL3 event loop (recommended), or native NSWindow + MTKView.                                                                                                                                                                                                                                                                               |
-| GameController input                            | SDL keyboard/mouse events.                                                                                                                                                                                                                                                                                                                      |
-| MPS (ch. 29)                                    | No binding. Write the equivalent compute kernels (blur/Sobel are classic exercises) or hand-bind the few MPS classes (mechanical with Odin's objc attributes).                                                                                                                                                                                  |
-| MetalFX (ch. 30)                                | No binding. Skip, or hand-bind `MTLFXSpatialScaler` (small API).                                                                                                                                                                                                                                                                                |
+| Book dependency | Odin approach | Status |
+|---|---|---|
+| Metal | `vendor:darwin/Metal` | Current draw/pipeline APIs tested; later APIs need validation when introduced |
+| MTKView | `vendor:darwin/MetalKit` | Working delegate bridge, with the ownership caveat in §3 |
+| Model I/O and MTKMesh | `common:modelio` | Narrow bindings for spheres, cones, vertex descriptors, asset import/export, and submeshes |
+| PlaygroundSupport / SwiftUI shell | Native AppKit through `core:sys/darwin/Foundation` | Single-window shell implemented; keep later book UI controls recognizable |
+| MathLibrary / simd | `core:math/linalg` plus book-convention helpers | Translation guide in §5; not yet used by chapters 1–2 |
+| MTKTextureLoader | Add the selectors/options the texture chapter needs | Planned; preserve the book's texture origin, sRGB, and mipmap choices |
+| GameController / notifications | Narrow keyboard/mouse, notification, and block bindings | Planned for chapter 9; camera behavior stays in the chapter |
+| Model I/O skeletal data | Extend bindings for transforms, skeletons, and animation arrays | Planned for chapters 23–24; preserve the USD assets and book's sampling logic |
+| MetalPerformanceShaders | Bind the used classes | First needed by chapter 19's `MPSImageSobel`; more in chapter 29 |
+| MetalFX | Bind the scaler APIs used in chapter 30, Profiling | Planned |
 
-## 3. Gotchas
+SDL, glTF/cgltf, stb_image, custom primitive generators, and replacement compute
+kernels remain possible experiments. They change what the reader must compare,
+so they are not the default implementation strategy. Do not assume future Odin
+framework coverage or promise that switching bindings will be only an import
+change; signatures, naming, and ownership need comparison when coverage arrives.
 
-1. **Manual reference counting.** No ARC. Cocoa rules apply: `alloc`/`new`/`copy` ⇒ you
-   `release()`; everything else is autoreleased ⇒ you need an `NS.AutoreleasePool` **per
-   frame** (and per thread) or drawables/command buffers leak. Debug with
-   `OBJC_DEBUG_MISSING_POOLS=YES`. The #1 bug source coming from Swift.
-2. **No automatic shader compilation.** Xcode builds `default.metallib` into the bundle;
-   an Odin binary has no bundle. Compile MSL at runtime (`device->newLibraryWithSource`)
-   or offline: `xcrun metal -c Shaders.metal -o s.air && xcrun metallib s.air -o default.metallib`,
-   then `newLibraryWithFile`.
-3. **Stale doc note:** the vendor README says `import MTL "core:sys/darwin/Metal"`; the
-   real path is `vendor:darwin/Metal`. Foundation genuinely lives at
-   `core:sys/darwin/Foundation`.
-4. **Struct layout between CPU and MSL.** MSL `float3` in a buffer is 16-byte aligned.
-   Swift's `SIMD3<Float>` happens to have 16-byte stride, but Odin's `[3]f32` is a tight
-   12 bytes — mirroring the book's `Common.h` structs requires `[4]f32` or explicit
-   padding fields. `matrix[4,4]f32` matches `float4x4` (64 bytes, column-major) directly.
-5. **Projection-matrix conventions differ** — `linalg.matrix4_perspective` targets
-   OpenGL (right-handed, NDC depth −1..1), Metal wants 0..1 and the book uses a
-   left-handed projection. Hand-port the book's four view/projection constructors (§5.4).
-6. **Obj-C callbacks are `proc "c"`** — no Odin context inside delegate callbacks; set
-   `context = runtime.default_context()` if needed.
-7. **Naming:** bindings drop prefixes — `MTL.Device`, `MTL.RenderPassDescriptor`, enum
-   cases like `.BGRA8Unorm_sRGB`, `.Triangle`.
-8. **Debugging without Xcode:** run with `MTL_DEBUG_LAYER=1` / `MTL_SHADER_VALIDATION=1`;
-   GPU capture via attaching Xcode or `MTLCaptureManager` (bound).
-9. **Target macOS only.** Odin-on-iOS is rough. All rendering content is platform-neutral;
-   the TBDR/imageblock chapters (12–15) just need an Apple-silicon Mac.
-10. **`#simd` types do not follow the C vector ABI (verified July 2026, dev-2026-07).**
-    Odin passes `#simd[4]f32`/`#simd[2]u32` `proc "c"` parameters in general-purpose
-    registers, while clang puts `vector_float3`/`vector_uint2` in SIMD registers
-    (AAPCS64 short vectors) — so *every* call into a simd-signature Apple API mis-passes
-    its arguments, whether through `intrinsics.objc_send` or a plain `foreign` C import.
-    Verified two ways: `MDLMesh initSphereWithExtent:…` crashes with the segments vector
-    showing up as an object pointer, and a clang-compiled control function receives
-    garbage lanes. No upstream issue exists yet (worth filing). Consequence:
-    **hand-binding Model I/O's procedural initializers is off the table in Odin** — the
-    workarounds are a clang-compiled shim exposing scalar/pointer parameters only, or
-    pure-Odin replacements (mesh generators, cgltf), which is what §2's gap table already
-    recommends. Metal itself is unaffected (its API passes structs like `ClearColor`,
-    never simd vectors by value).
-    **Resolved:** reported as odin-lang/Odin#7010 (2026-07-11); fix PR #7015 (params,
-    returns, and vector *aggregates* — `MDLAxisAlignedBoundingBox`-style structs)
-    **merged** and included in Odin dev-2026-08. Verified locally against both repros. The port's
-    C shim has been removed — simd-signature selectors are now called directly via
-    `objc_send` with `#simd` types (`common/modelio/new_sphere`). As of September 2026,
-    Homebrew provides dev-2026-09 and `run.sh` defaults to the compiler on PATH. This unblocks direct
-    binding of *all* Model I/O simd-signature APIs (procedural primitives, boundingBox,
-    animation array getters) — the glTF-conversion strategy in §2 is now optional
-    rather than forced.
-11. **The vendor `MTKView` delegate bridge vs. autorelease pools** (found porting
-    ch. 1): `MTKView.delegate` is a *weak* Obj-C property, and
-    `vendor:darwin/MetalKit`'s `View_setDelegate` wraps your Odin `ViewDelegate` struct
-    in an **autoreleased `NSValue`**. If you call `setDelegate` inside an autorelease
-    pool (which you should be using during setup — see gotcha 1), the wrapper is
-    deallocated at pool drain and **drawing silently stops** — no crash, no warning,
-    just zero `drawInMTKView` calls. Fix: retain the wrapper right after setting it:
-    `intrinsics.objc_send(^NS.Value, view, "delegate")->retain()`. Also remember `main`
-    itself needs a setup pool around AppKit/Metal initialization (drained before
-    `app->run()`, which manages its own per-event pools); `OBJC_DEBUG_MISSING_POOLS=YES`
-    flags the gap. Warnings from Apple-internal worker threads (e.g. the runtime shader
-    compiler) are noise you can't fix.
+## 3. Odin and Metal differences that matter
 
-## 4. Port structure (as implemented in `odin_port/`)
+### Ownership and callbacks
 
-- One Odin package per chapter (`01-hello-metal/`, …) plus shared packages under
-  `common/`, imported through a collection (`import mdl "common:modelio"`; `run.sh`
-  passes `-collection:common=common`). Organizing rule: **`common/` holds only plumbing
-  the book hides inside Apple frameworks** (direct Model I/O bindings; later
-  `texture.odin`, `math.odin` §5.4, camera/input); anything the book teaches in-chapter
-  stays in the chapter package so each demo reads independently.
-- `run.sh <chapter>` invokes Odin dev-2026-08 or later directly; no clang shim is needed
-  now that the `#simd` ABI fix is included (§3.10). The Model I/O bindings are deliberately
-  disposable if Odin later ships equivalent framework coverage, and mirror vendor naming
-  so migration is an import swap.
-- No asset-conversion step is currently needed: the samples load the original `.usdz`
-  files directly through Model I/O. A USDZ → glTF conversion script remains an optional
-  fallback if a future port needs to avoid Model I/O.
-- Difficulty by chapter: **1–22** (rendering, lighting, shadows, deferred, PBR/IBL,
-  tessellation, particles) port nearly 1:1. **23–24** (animation) need the most new code
-  (glTF skin/keyframe sampling). **25–28** (bindless, ICB, GPU-driven, mesh shaders) are
-  fully supported by the bindings. **29 (MPS)** and **30 (MetalFX)** need hand-bindings
-  or substitution.
+Odin does not provide Swift ARC. An owned Objective-C result (`alloc`/`init`,
+`new`, `copy`, or an explicitly retained reference) needs a matching release when
+its lifetime ends. A borrowed mesh buffer is valid only while its owner remains
+alive. NSError results and many convenience-method results are autoreleased.
+Keep setup and per-frame autorelease pools; they do not release owned objects
+or free Odin dynamic arrays and allocator memory.
 
-### Representative-sample plan (agreed 2026-07)
+The current samples deliberately retain their renderer and shell resources for
+the process lifetime. This is bounded for a single initialization, but it is not
+a reusable scene-loading or shutdown pattern. Before adding reloads or multiple
+scenes, store owners explicitly and add destruction. Do not rely on `defer`
+after `app->run()` for normal AppKit termination: `terminate:` can exit the
+process without returning through Odin's `main`.
 
-Not porting all 31 chapters — a sample chosen to touch every distinct interop surface
-(where SIMD-FFI-class bugs live), skipping chapters that are new shader techniques on
-existing plumbing (MSL ports unchanged and exercises Odin not at all).
+MTKView holds its delegate weakly. Odin's vendor bridge wraps the Odin delegate
+in an autoreleased `NSValue`; retain that wrapper across the setup-pool drain.
+When introducing teardown, detach the Objective-C delegate before releasing its
+wrapper or renderer. `View_setDelegate(nil)` still creates a wrapper in the
+current vendor implementation; detaching requires sending a nil Objective-C
+`setDelegate:` argument directly.
 
-- **Spine (in order):** 1 ✅ → 2 ✅ (MDLAsset I/O, class-as-argument) → 5 (CPU↔GPU structs,
-  absorbs 4) → 7 (hand-built vertex descriptors, absorbs 6) → 8 (materials,
-  MTKTextureLoader + NSDictionary options) → 9 (GameController: **blocks**,
-  NotificationCenter) → 10 (scene consolidation) → 19 (tessellation + first MPS) →
-  23+24 (skeletal animation: vector-aggregate `boundingBox`, matrix-array pointer
-  getters, protocol queries; hard pair, do together) → 28 (mesh pipeline descriptors —
-  likely first-ever user of those vendor bindings) → 29 (MPS class family).
-- **Optional:** 21 (`MDLSkyCubeTexture`, `vector_int2` lane type), 26 (ICB — same
-  first-user argument as 28), 30 (MetalFX scaler, ~50-line binding).
-- **Skip:** 3–4, 6 (subsumed); 11–18, 20, 22 (pure rendering technique, no new interop);
-  25, 27 (incremental over 24/26); 31 (no code). Skipping is reversible — a skipped
-  technique's shaders drop into the ported engine nearly verbatim.
-- Catch-up points where `common/` must leap a gap: 10→19 (small) and 19→23 (needs the
-  ch. 8–10 material/camera stack, already in the spine).
+Foreign callbacks are `proc "c"`. Restore an Odin context before calling
+context-dependent allocation/formatting helpers. The current draw callbacks only
+use contextless/C procedures. The Foundation application-delegate helper restores
+the context supplied at registration for its Odin callbacks.
+
+Odin's `when` does not create a new scope. Chapter 2's branch-local `defer` calls
+therefore run at the end of `renderer_init`, after MTKMesh conversion. Replacing
+`when` with a runtime `if` would change those lifetimes and needs a fresh review.
+
+Use `OBJC_DEBUG_MISSING_POOLS=YES` to investigate pool ownership, but inspect the
+warning's stack before attributing it to the port or dismissing it as system
+noise. It does not detect all retained-object or Odin-allocator leaks.
+
+### Vertex data, GPU structs, and foreign ABI are different layouts
+
+On the tested arm64 compiler:
+
+| Type | Odin size / alignment | Swift/Metal size or stride / alignment |
+|---|---|---|
+| `[3]f32` vs `float3` | 12 / 4 | 16 / 16 |
+| `[4]f32` vs `float4` | 16 / 4 | 16 / 16 |
+| `matrix[3,3]f32` vs `float3x3` | 36 / 4 | 48 / 16 |
+| `matrix[4,4]f32` vs `float4x4` | 64 / 4 | 64 / 16 |
+
+For a shared normal matrix, upload three padded four-float columns, not a raw
+36-byte Odin matrix. For all `Common.h` translations, verify each field offset,
+field alignment, total size, and array stride. Merely aligning the outer struct
+to 16 bytes does not fix misaligned members inside it. Keep ordinary packed
+vectors/matrices for CPU math and introduce explicit upload representations at
+the chapter that first shares a struct with a shader.
+
+A vertex descriptor can describe packed 12-byte position data, as chapter 2 does.
+That descriptor governs vertex fetching; `constant`/`device` buffer structs and
+Objective-C methods taking SIMD values by value have different requirements.
+The binding's `#simd[4]f32` is the tested ABI representation for Apple's padded
+`vector_float3`; it is not the chapter's position-buffer element type.
+
+### Math and draw behavior
+
+The book uses left-handed view/projection conventions and Metal depth 0..1.
+The stock linalg perspective/orthographic helpers use a different depth mapping;
+a `flip_z_axis` option alone is not a substitute for the book's constructors.
+Keep Euler rotation order and the chapter's transformation chain visible.
+
+Use the MTKMeshBuffer's actual vertex and index offsets when encoding draws.
+The current demos still assume vertex offset zero; the supplied assets work,
+but shared-buffer suballocation requires the reported offset. Preserve Swift's
+failure checks for command queues, command buffers, and encoders. A temporarily
+unavailable drawable in a continuous MTKView callback should skip that frame.
+
+Shaders compile at runtime in chapters 1–2. Later chapters may load `.metal`
+source or build a `.metallib`, but paths, entry points, defines, and `Common.h`
+includes must match the selected book project. Binding presence does not prove
+that an advanced shader or feature runs on the current GPU.
+
+## 4. Reading order and implementation priorities
+
+The book's chapter order is the recommended reading order. Writing the examples
+is optional. The selected implementation route remains
+**1 → 2 → 5 → 7 → 8 → 9 → 10 → 19 → 23–24 → 28 → 29**, with 21, 26, and 30
+optional. This prioritizes distinct interop surfaces; it does not mean the
+intervening chapters are unnecessary for a reader or already ported.
+
+| Next port | Read/review first | What the port should preserve |
+|---|---|---|
+| 5: 3D Transformations | 3: Rendering Pipeline; 4: Vertex Function | Renderer structure, vertex inputs, CPU/GPU uniforms, and the book's transform sequence |
+| 7: Fragment Function | 6: Coordinate Spaces | View/projection conventions and the interpolation/fragment lesson |
+| 8: Textures | The preceding vertex/fragment setup | MTKTextureLoader options, texture coordinates, samplers, and image orientation |
+| 9: Navigating a 3D Scene | 5–8 | The book's camera and input behavior, with narrow framework bindings |
+| 10: Lighting Fundamentals | 7–9 | Normals, normal-matrix layout, lights, and the lighting equations |
+| 19: Tessellation and Terrains | Compare its project with 10; review the intervening render-pass, material, and compute concepts it uses | Tessellation stages, terrain inputs, and MPS Sobel usage |
+| 23–24: Animation / Character Animation | Review hierarchy, materials, and transforms in the selected final projects | Model I/O animation data, coordinate spaces, interpolation, and skinning |
+| 28: Mesh Shaders | Read the GPU-driven command-encoding chapters 25–27 | Mesh/object pipeline stages and their actual resource requirements |
+| 29: Metal Performance Shaders | Review its input/output texture flow | The demonstrated MPS operations and results |
+
+Before each jump, compare the target Swift project's files and shaders with the
+last port. List the missing prerequisites in that chapter's README and explain
+where the carried-forward code came from. Do not call the catch-up small until
+that comparison is done, or move its rendering concepts into `common/` to hide it.
+
+Each implemented chapter should include: links to exact Swift variants; commands
+in book-page order; expected output; a short Swift-to-Odin reading map; deliberate
+differences; and any current limitations. Starter/final/challenge code should
+remain identifiable. Share framework support, while keeping code the book is
+actively teaching visible in the chapter package.
 
 ## 5. Math cheat sheet: Swift simd / MathLibrary → Odin
 
@@ -181,8 +204,8 @@ existing plumbing (MSL ports unchanged and exercises Odin not at all).
 | `float2` / `SIMD2<Float>` | `[2]f32` (`linalg.Vector2f32`) | Odin arrays have full array programming |
 | `float3` / `SIMD3<Float>` | `[3]f32` (`linalg.Vector3f32`) | ⚠ 12 bytes in Odin vs 16 in Swift — pad in GPU-shared structs |
 | `float4` / `SIMD4<Float>` | `[4]f32` (`linalg.Vector4f32`) | |
-| `float3x3` | `matrix[3,3]f32` (`linalg.Matrix3f32`) | column-major |
-| `float4x4` | `matrix[4,4]f32` (`linalg.Matrix4f32`) | column-major, layout-compatible with MSL `float4x4` |
+| `float3x3` | `matrix[3,3]f32` (`linalg.Matrix3f32`) | CPU math only: 36 bytes here; Metal/Swift use 48 bytes with padded columns |
+| `float4x4` | `matrix[4,4]f32` (`linalg.Matrix4f32`) | Same 64-byte column data; Odin alignment is 4, Metal/Swift alignment is 16 |
 | `simd_quatf` | `quaternion128` (`linalg.Quaternionf32`) | built-in language type |
 | `matrix_double4x4` | `matrix[4,4]f64` | convert with `linalg.matrix_cast(m, f32)` |
 | `SIMD4<Double>` | `[4]f64` | convert with `linalg.array_cast(v, f32)` |
@@ -195,7 +218,7 @@ existing plumbing (MSL ports unchanged and exercises Odin not at all).
 | `v1 * v2` (component-wise) | `v1 * v2` (same — array programming) |
 | `v.xyz` (book's `float4` extension) | `v.xyz` — **built into the language**, any swizzle works |
 | `m.columns.3` | `m[3]` (single index = column) ; `m[row, col]` for elements |
-| `matrix_identity_float4x4` / `.identity` | `linalg.MATRIX4F32_IDENTITY` (or `matrix[4,4]f32(1)`) |
+| `matrix_identity_float4x4` / `.identity` | `linalg.MATRIX4F32_IDENTITY` (or `(matrix[4,4]f32)(1)`) |
 | `normalize(v)`, `dot`, `cross`, `length`, `distance` | `linalg.normalize`, `.dot`, `.cross`, `.length`, `.distance` |
 | `m.inverse`, `m.transpose` | `linalg.inverse(m)`, `linalg.transpose(m)` |
 | `π`, `Float.pi` | `math.PI` (`core:math`) |
@@ -227,14 +250,20 @@ existing plumbing (MSL ports unchanged and exercises Odin not at all).
 | `q.act(v)` (rotate vector) | `linalg.quaternion_mul_vector3(q, v)` |
 | `simd_quatf(m)` (from matrix) | `linalg.quaternion_from_matrix3_f32(linalg.matrix3_from_matrix4(m))` |
 | `float4x4(q)` (from quaternion) | `linalg.matrix4_from_quaternion_f32(q)` |
-| TRS compose (translate·rotate·scale) | `linalg.matrix4_from_trs_f32(t, r, s)` — replaces the book's `Transform.modelMatrix` multiply chain |
+| TRS with a quaternion rotation | `linalg.matrix4_from_trs_f32(t, q, s)`; the book's early `Transform.rotation` is Euler angles, so keep its explicit translation × rotation × scale chain |
 
-### 5.4 Drop-in `common/math.odin` for the Metal-convention constructors
+### 5.4 Reference math helpers for later chapters
 
-These four are the only MathLibrary pieces `linalg` doesn't cover with matching
-conventions. Ported verbatim from the book (column-major; Odin matrix literals are
-written row-by-row, so these read transposed relative to the Swift column lists —
-the resulting memory layout is identical):
+The three camera constructors below preserve the book's conventions; the two
+Euler helpers make its multiplication order explicit. They are reference code,
+not an implemented shared package yet. Introduce them alongside chapters 5–6,
+then share them once the reader has seen their purpose.
+
+The formulas correspond to the book's `MathLibrary.swift`. Odin matrix literals
+are written row by row, whereas Swift's initializer takes columns. Numerical
+comparison with the chapter 10 Swift helpers passed for both perspective/view
+handedness options, orthographic projection, and both Euler orders on dev-2026-09.
+This checks matrix values; GPU struct padding must still follow §3.
 
 ```odin
 package common
@@ -298,142 +327,31 @@ rotation_yxz :: proc(angle: float3) -> float4x4 {
 }
 ```
 
-Everything else in MathLibrary.swift (and far more — quaternion utilities the book
-lacks) comes straight from `core:math/linalg`. If you prefer GLSL naming
-(`mat4LookAt`, `quatSlerp`, `radians`), `core:math/linalg/glsl` mirrors the same
-functionality — but note its projection procs are also GL-convention.
+Use the table to translate operations as they appear in the chapter. Similar
+procedure names do not establish matching handedness, depth range, Euler order,
+or foreign ABI. Prefer the book's vocabulary to changing naming conventions
+halfway through a chapter.
 
-## 6. A small example: clear + triangle (Odin + SDL2 + Metal)
+## 6. Verification when adding a chapter
 
-Verified against the actual binding signatures in the Odin repo
-(`newLibraryWithSource`, `newBufferWithSlice`, `renderCommandEncoderWithDescriptor`, …).
-Build and run with `odin run .` — no Xcode project, no build system.
+1. Identify the exact Swift variant, assets, shaders, and expected output.
+2. Run `just check` for all implemented variants
+   (`odin check -strict-style -warnings-as-errors`), then use `just run <chapter>`
+   for the selected example. Compile runnable documentation snippets, too.
+3. Run with Metal API and shader validation, inspect the image and interactions,
+   and exercise normal close behavior. An unavailable sandbox GPU is not a pass.
+4. Check new ownership boundaries: pool drains, borrowed results, callbacks,
+   repeated loads, and teardown. Run affected variants with
+   `just sanitize <chapter> [flags...]` (`-debug -sanitize:address`) and Odin test
+   packages with `just test-sanitize <package>`. Use zombie diagnostics for
+   suspicious Objective-C lifetimes; sanitizer success and visually correct
+   output alone do not establish balanced ownership.
+5. Check every new CPU/GPU shared layout. Compare math with the Swift reference
+   and test near/far depth and other boundary conditions.
+6. Record what was tested, the compiler/platform, and any intentional differences.
+   Only then mark the chapter implemented.
 
-```odin
-package triangle
-
-import "core:fmt"
-import NS  "core:sys/darwin/Foundation"
-import MTL "vendor:darwin/Metal"
-import CA  "vendor:darwin/QuartzCore"
-import SDL "vendor:sdl2"
-
-shader_source :: `
-#include <metal_stdlib>
-using namespace metal;
-
-struct VertexOut {
-  float4 position [[position]];
-  float4 color;
-};
-
-vertex VertexOut vertex_main(uint vid [[vertex_id]],
-                             constant packed_float3 *positions [[buffer(0)]]) {
-  VertexOut out {
-    .position = float4(positions[vid], 1.0),
-    .color    = float4(positions[vid] * 0.5 + 0.5, 1.0),
-  };
-  return out;
-}
-
-fragment float4 fragment_main(VertexOut in [[stage_in]]) {
-  return in.color;
-}
-`
-
-main :: proc() {
-	SDL.Init({.VIDEO}); defer SDL.Quit()
-
-	window := SDL.CreateWindow("Metal in Odin",
-		SDL.WINDOWPOS_CENTERED, SDL.WINDOWPOS_CENTERED, 800, 600,
-		{.ALLOW_HIGHDPI, .RESIZABLE})
-	defer SDL.DestroyWindow(window)
-
-	device := MTL.CreateSystemDefaultDevice()
-	defer device->release()
-	fmt.println(device->name()->odinString())
-
-	// Attach a CAMetalLayer to SDL's window
-	metal_view := SDL.Metal_CreateView(window)
-	defer SDL.Metal_DestroyView(metal_view)
-	layer := (^CA.MetalLayer)(SDL.Metal_GetLayer(metal_view))
-	layer->setDevice(device)
-	layer->setPixelFormat(.BGRA8Unorm_sRGB)
-
-	// Compile shaders at runtime (or precompile a .metallib, see §3.2)
-	source := NS.String.alloc()->initWithOdinString(shader_source)
-	defer source->release()
-	library, err := device->newLibraryWithSource(source, nil)
-	if err != nil { fmt.eprintln(err->localizedDescription()->odinString()); return }
-	defer library->release()
-
-	vertex_fn   := library->newFunctionWithName(NS.AT("vertex_main"))
-	fragment_fn := library->newFunctionWithName(NS.AT("fragment_main"))
-	defer vertex_fn->release()
-	defer fragment_fn->release()
-
-	desc := MTL.RenderPipelineDescriptor.alloc()->init()
-	defer desc->release()
-	desc->setVertexFunction(vertex_fn)
-	desc->setFragmentFunction(fragment_fn)
-	desc->colorAttachments()->object(0)->setPixelFormat(.BGRA8Unorm_sRGB)
-
-	pipeline, pso_err := device->newRenderPipelineState(desc)
-	if pso_err != nil { fmt.eprintln(pso_err->localizedDescription()->odinString()); return }
-	defer pipeline->release()
-
-	positions := [][3]f32{{0.0, 0.6, 0}, {-0.6, -0.6, 0}, {0.6, -0.6, 0}}
-	vertex_buffer := device->newBufferWithSlice(positions[:], {.StorageModeManaged})
-	defer vertex_buffer->release()
-
-	queue := device->newCommandQueue()
-	defer queue->release()
-
-	for quit := false; !quit; {
-		for e: SDL.Event; SDL.PollEvent(&e); {
-			#partial switch e.type {
-			case .QUIT: quit = true
-			}
-		}
-
-		// One pool per frame: drains the autoreleased drawable & command buffer
-		pool := NS.AutoreleasePool.alloc()->init()
-		defer pool->release()
-
-		drawable := layer->nextDrawable()
-		assert(drawable != nil)
-
-		pass := MTL.RenderPassDescriptor.renderPassDescriptor()
-		color := pass->colorAttachments()->object(0)
-		color->setTexture(drawable->texture())
-		color->setLoadAction(.Clear)
-		color->setClearColor(MTL.ClearColor{0.1, 0.1, 0.12, 1.0})
-		color->setStoreAction(.Store)
-
-		cmd := queue->commandBuffer()
-		enc := cmd->renderCommandEncoderWithDescriptor(pass)
-		enc->setRenderPipelineState(pipeline)
-		enc->setVertexBuffer(vertex_buffer, 0, 0)
-		enc->drawPrimitives(.Triangle, 0, 3)
-		enc->endEncoding()
-
-		cmd->presentDrawable(drawable)
-		cmd->commit()
-	}
-}
-```
-
-Compared with the book's ch. 1–3: the Swift `MTKView` + `Renderer` split maps to the SDL
-loop + this body; `MTKMesh(mesh:device:)` becomes `newBufferWithSlice`. (An MTKView-based
-version is equally possible using the bound `MTK.View` + `ViewDelegate`.)
-
-## 7. Milestones / verification
-
-1. **Triangle** — scaffold §6, `odin run .`; a colored triangle validates toolchain +
-   bindings. Run with `MTL_DEBUG_LAYER=1 OBJC_DEBUG_MISSING_POOLS=YES` to confirm clean
-   validation and no autorelease-pool leaks.
-2. **Asset pipeline** — convert one book model (e.g. `train.usdz`) → `.glb`, load via
-   cgltf, render lit with a depth buffer. Proves the entire Model I/O replacement.
-3. **Textures + camera** — stb_image upload, mipmaps, `common/math.odin` view/projection;
-   equivalent to finishing part I of the book.
-4. From there, chapters proceed in book order; shaders copy across as-is.
+The chapter-3 rendering-pipeline example, when ported, should follow the book's
+MTKView/Renderer structure. The earlier standalone SDL triangle sketch has been
+removed from this reading plan because it introduced a second application
+architecture before the reader needed one.

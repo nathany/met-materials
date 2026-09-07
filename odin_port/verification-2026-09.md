@@ -42,8 +42,9 @@ odin build 01-hello-metal -collection:common=common -vet -strict-style -out:/tmp
 MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1 /tmp/hello-metal
 ```
 
-Repeat with the chapters and `-define:` flags above. `run.sh` now uses the PATH
-compiler by default, while retaining the `ODIN=/path/to/odin` override.
+Repeat with the chapters and `-define:` flags above. At the time of this check,
+`run.sh` used the PATH compiler with an `ODIN=/path/to/odin` override. It has since
+been replaced by the root [Justfile](../Justfile); see the [current workflow](README.md).
 
 ## Library changes worth using
 
@@ -81,3 +82,24 @@ which does not benefit these macOS demos.
 September also removes `core:os/old` and the `os.Error == 0` compatibility rule.
 Chapter 2 already imports `core:os` and compares errors with `nil`, so it needs
 no migration.
+
+## Justfile and AddressSanitizer follow-up
+
+The root [Justfile](../Justfile) replaced `run.sh` on 2026-09-07. With just 1.58.0
+and the same Odin release, `just check` passed for all five variants using
+`-strict-style -warnings-as-errors`.
+
+All five variants also ran through `just sanitize` with
+`-debug -sanitize:address`, Metal API validation, and Metal shader validation.
+Temporary copies used the audit's three-frame completion/exit instrumentation;
+compile-time assertions verified AddressSanitizer and debug mode were enabled.
+Every run completed its frames and exited 0 with no ASan or Metal validation
+errors. The temporary cone export did not overwrite the existing repository
+export. These are bounded smoke checks, not leak or shutdown-ownership proofs.
+
+Temporary test procedures verified `just test` and `just test-sanitize`, including
+the expected debug/sanitizer flags. An executable-path/argument probe checked
+`ODIN` overrides containing spaces, quoted argument preservation, compiler-error
+propagation, and the working directory when invoked from a chapter directory.
+The default recipe and `just --fmt --check` also passed. No permanent unit-test
+suite was added; the implemented demos still require runtime/visual checks.

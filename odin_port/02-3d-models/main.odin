@@ -2,9 +2,9 @@
 //
 // The chapter's two final playground pages and its challenge are selected at
 // compile time:
-//   ./run.sh 02-3d-models                            # import train.usdz
-//   ./run.sh 02-3d-models -define:EXPORT_CONE=true   # render + export cone
-//   ./run.sh 02-3d-models -define:CHALLENGE=true     # import mushroom.usdz
+//   just run 02-3d-models                            # import train.usdz
+//   just run 02-3d-models -define:EXPORT_CONE=true   # render + export cone
+//   just run 02-3d-models -define:CHALLENGE=true     # import mushroom.usdz
 package three_d_models
 
 import "base:intrinsics"
@@ -128,7 +128,7 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 
 		model_path := absolute_path(MODEL_PATH)
 		defer delete(model_path)
-		assert(os.exists(model_path), fmt.tprintf("model not found at %s (run ./run.sh from odin_port/)", model_path))
+		assert(os.exists(model_path), fmt.tprintf("model not found at %s (use just run 02-3d-models)", model_path))
 
 		model_url := file_url(model_path)
 		defer model_url->release()

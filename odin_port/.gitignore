@@ -1,4 +1,4 @@
-# Build artifacts (recreated by run.sh)
+# Build artifacts (recreated by the Justfile)
 *.o
 *.bin
 *.dSYM/
