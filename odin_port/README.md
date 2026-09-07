@@ -17,9 +17,8 @@ odin_port/
 **Compiler requirement:** the port needs the `#simd` C-ABI fix
 ([odin-lang/Odin#7010](https://github.com/odin-lang/Odin/issues/7010), merged via
 [PR #7015](https://github.com/odin-lang/Odin/pull/7015) and included in dev-2026-08).
-`run.sh` defaults to the locally built compiler at
-`~/src/github.com/odin-lang/Odin/odin`; once your PATH compiler is new enough,
-run with `ODIN=odin ./run.sh …`.
+`run.sh` defaults to `odin` on PATH (verified with dev-2026-09).
+To test another compiler, run with `ODIN=/path/to/odin ./run.sh …`.
 
 The organizing rule: **`common/` holds only plumbing the book hides inside
 Apple frameworks** (Model I/O bindings, later texture loading, math
@@ -46,6 +45,9 @@ With Metal validation while developing:
 ```sh
 MTL_DEBUG_LAYER=1 OBJC_DEBUG_MISSING_POOLS=YES ./run.sh 01-hello-metal
 ```
+
+See the [dev-2026-09 verification](verification-2026-09.md) for the five-variant
+runtime check and a review of relevant bundled library changes.
 
 ## Chapters
 

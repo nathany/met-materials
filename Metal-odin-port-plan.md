@@ -112,8 +112,8 @@ hand-rolled compute shaders and port directly.
     returns, and vector *aggregates* — `MDLAxisAlignedBoundingBox`-style structs)
     **merged** and included in Odin dev-2026-08. Verified locally against both repros. The port's
     C shim has been removed — simd-signature selectors are now called directly via
-    `objc_send` with `#simd` types (`common/modelio/new_sphere`), and `run.sh` uses the
-    locally built compiler until Homebrew ships dev-2026-08. This unblocks direct
+    `objc_send` with `#simd` types (`common/modelio/new_sphere`). As of September 2026,
+    Homebrew provides dev-2026-09 and `run.sh` defaults to the compiler on PATH. This unblocks direct
     binding of *all* Model I/O simd-signature APIs (procedural primitives, boundingBox,
     animation array getters) — the glTF-conversion strategy in §2 is now optional
     rather than forced.
