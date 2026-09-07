@@ -18,7 +18,7 @@ should not be introduced just to address advice about an obsolete example.
 |---|---|---|---|
 | KI-001 | P2 | Missing command-creation failure checks | Fixed; verified |
 | KI-002 | P2 | Vertex-buffer offsets are discarded | Fixed; verified |
-| KI-003 | P2 | Renderer ownership and destruction are incomplete | Open; accepted for reference quality |
+| KI-003 | P2 | Renderer ownership and destruction are incomplete | Fixed; verified |
 
 P2 means a correction planned for the reference implementation, not a claim
 that the supplied demos currently crash. All five variants rendered in the
@@ -115,6 +115,20 @@ after setup pools drain and introduce no message-to-deallocated-object failures.
 **Priority note:** the original audit called this P3 for a one-shot demo. The
 reference-implementation criterion raises it to planned P2 work: readers should
 see a usable ownership pattern, even though the runtime evidence has not changed.
+
+**Resolution (2026-09-07):** each renderer stores its owned mesh and has an
+idempotent destruction procedure. Chapter 2 now reads the mesh's submeshes
+directly, removing the duplicate dynamic array. Application shutdown pauses and
+detaches the view, then releases renderer and shell owners. AppKit's termination
+callback covers both Quit and last-window close; an explicit window-close policy
+avoids a double release. Initialization requires destruction of the prior renderer.
+
+All five variants retain their baseline images under ASan/Metal validation.
+Deallocation observers verify repeated renderer destruction and eventual shell
+deallocation after pending AppKit releases drain. Native close, run-loop return,
+and teardown before GPU completion also pass. The
+[fix verification](odin_port/fix-verification-2026-09.md) distinguishes windowed
+checks from the offscreen checks used after the desktop session locked.
 
 ## CodeRabbit review of PR #1
 

@@ -34,9 +34,16 @@ zero and one submesh.
 
 ## Ownership to notice
 
-Setup and each draw have an autorelease pool. The MTKMesh is deliberately kept
-alive for the whole process, preserving the borrowed GPU buffers cached in
-`Renderer`. The command queue, pipeline, and shell also have process lifetimes.
-The retained delegate wrapper is necessary because MTKView holds it weakly.
-This is a one-window example, not a reloadable renderer; see the
-[audit](../audit-2026-09.md) before reusing its ownership pattern.
+Setup and each draw have an autorelease pool. `Renderer` owns the MTKMesh,
+command queue, and pipeline; its cached GPU buffers borrow from that mesh.
+`renderer_destroy` releases those owners and resets the borrowed references.
+Stop drawing before destruction; initialization requires an empty renderer.
+
+`Application_State` owns the window, view, device, and delegate references.
+`app_shutdown` pauses the view, clears its weak Objective-C delegate, and releases
+the renderer and shell. It runs from `applicationWillTerminate`, including when
+the last window closes, since AppKit may never return from `app->run()`.
+The window disables release-on-close so this explicit shutdown owns the release.
+The retained view-delegate wrapper survives the setup pool and is released only
+after detachment. Default Metal command buffers keep encoded resources alive
+until their GPU work finishes.

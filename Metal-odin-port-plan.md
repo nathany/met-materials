@@ -95,23 +95,28 @@ alive. NSError results and many convenience-method results are autoreleased.
 Keep setup and per-frame autorelease pools; they do not release owned objects
 or free Odin dynamic arrays and allocator memory.
 
-The current samples deliberately retain their renderer and shell resources for
-the process lifetime. This is bounded for a single initialization, but it is not
-a reusable scene-loading or shutdown pattern. Before adding reloads or multiple
-scenes, store owners explicitly and add destruction. Do not rely on `defer`
-after `app->run()` for normal AppKit termination: `terminate:` can exit the
-process without returning through Odin's `main`.
+The current samples store renderer and application owners explicitly.
+`renderer_destroy` releases the mesh, queue, and pipeline and resets borrowed
+references. Chapter 2 iterates the owned mesh's submeshes instead of copying them
+into an Odin array. Stop drawing before destroying or reinitializing a renderer.
+Default Metal command buffers retain encoded resources until GPU completion.
+
+`app_shutdown` pauses/detaches the view and releases the renderer and shell from
+`applicationWillTerminate`, including last-window close. The window disables
+release-on-close to keep its release under this explicit owner. Do not rely only
+on `defer` after `app->run()`: `terminate:` can exit without returning through
+Odin's `main`. The cleanup is idempotent and also runs if the run loop returns.
 
 MTKView holds its delegate weakly. Odin's vendor bridge wraps the Odin delegate
 in an autoreleased `NSValue`; retain that wrapper across the setup-pool drain.
-When introducing teardown, detach the Objective-C delegate before releasing its
+During teardown, detach the Objective-C delegate before releasing its
 wrapper or renderer. `View_setDelegate(nil)` still creates a wrapper in the
 current vendor implementation; detaching requires sending a nil Objective-C
 `setDelegate:` argument directly.
 
 Foreign callbacks are `proc "c"`. Restore an Odin context before calling
-context-dependent allocation/formatting helpers. The current draw callbacks only
-use contextless/C procedures. The Foundation application-delegate helper restores
+context-dependent assertions or allocation/formatting helpers. The draw callbacks
+establish a default context. The Foundation application-delegate helper restores
 the context supplied at registration for its Odin callbacks.
 
 Odin's `when` does not create a new scope. Chapter 2's branch-local `defer` calls
@@ -154,10 +159,10 @@ a `flip_z_axis` option alone is not a substitute for the book's constructors.
 Keep Euler rotation order and the chapter's transformation chain visible.
 
 Use the MTKMeshBuffer's actual vertex and index offsets when encoding draws.
-The current demos still assume vertex offset zero; the supplied assets work,
-but shared-buffer suballocation requires the reported offset. Preserve Swift's
-failure checks for command queues, command buffers, and encoders. A temporarily
-unavailable drawable in a continuous MTKView callback should skip that frame.
+The current demos preserve both offsets, including for shared-buffer
+suballocations, and check command queue, command buffer, and encoder creation
+as Swift does. A temporarily unavailable drawable in a continuous MTKView
+callback should skip that frame.
 
 Shaders compile at runtime in chapters 1–2. Later chapters may load `.metal`
 source or build a `.metallib`, but paths, entry points, defines, and `Common.h`

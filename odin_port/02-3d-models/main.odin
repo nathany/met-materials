@@ -64,25 +64,31 @@ fragment float4 fragment_main() {
 `
 }
 
-Submesh :: struct {
-	index_count:  NS.UInteger,
-	index_type:   MTL.IndexType,
-	index_buffer: ^MTL.Buffer,
-	index_offset: NS.UInteger,
-}
-
+// The mesh owns the borrowed vertex buffer and the submeshes used by draw.
 Renderer :: struct {
+	mesh:           ^mdl.MTKMesh, // Owned; keeps borrowed GPU buffers alive.
 	command_queue:  ^MTL.CommandQueue,
 	pipeline_state: ^MTL.RenderPipelineState,
 	vertex_buffer:  ^MTL.Buffer,
 	vertex_offset:  NS.UInteger,
-	submeshes:      [dynamic]Submesh,
 }
 
 renderer: Renderer
 view_delegate: MTK.ViewDelegate
 
+// AppKit delegates are weak. Keep our owned references until app_shutdown.
+Application_State :: struct {
+	device:           ^MTL.Device,
+	window:           ^NS.Window,
+	view:             ^MTK.View,
+	app_delegate:     ^NS.ApplicationDelegate,
+	delegate_wrapper: ^NS.Value,
+}
+
+application: Application_State
+
 renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
+	assert(renderer.mesh == nil, "destroy the renderer before initializing it again")
 	pool := NS.AutoreleasePool.alloc()->init()
 	defer pool->release()
 
@@ -144,7 +150,8 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 
 	mesh, mesh_err := mdl.MTKMesh.alloc()->initWithMesh(mdl_mesh, device)
 	fatal_on(mesh_err, "failed to convert MDLMesh to MTKMesh")
-	// Keep this owned MTKMesh alive: it owns the GPU buffers referenced below.
+	assert(mesh != nil, "failed to create MTKMesh")
+	renderer.mesh = mesh
 
 	renderer.command_queue = device->newCommandQueue()
 	assert(renderer.command_queue != nil, "failed to create Metal command queue")
@@ -176,18 +183,6 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	renderer.vertex_buffer = vertex_buffer->buffer()
 	// MTKMeshBuffers may share a Metal buffer; preserve this mesh's start.
 	renderer.vertex_offset = vertex_buffer->offset()
-
-	submeshes := mesh->submeshes()
-	for index in 0 ..< submeshes->count() {
-		submesh := (^mdl.MTKSubmesh)(submeshes->object(index))
-		index_buffer := submesh->indexBuffer()
-		append(&renderer.submeshes, Submesh {
-			index_count  = submesh->indexCount(),
-			index_type   = submesh->indexType(),
-			index_buffer = index_buffer->buffer(),
-			index_offset = index_buffer->offset(),
-		})
-	}
 }
 
 absolute_path :: proc(relative_path: string) -> string {
@@ -203,6 +198,15 @@ file_url :: proc(path: string) -> ^NS.URL {
 	path_string := NS.String.alloc()->initWithOdinString(path)
 	defer path_string->release()
 	return NS.URL.alloc()->initFileURLWithPath(path_string)
+}
+
+// Call only while drawing is stopped. Default Metal command buffers retain
+// their encoded resources until GPU work completes, including during shutdown.
+renderer_destroy :: proc() {
+	renderer.mesh->release()
+	renderer.pipeline_state->release()
+	renderer.command_queue->release()
+	renderer = {}
 }
 
 draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
@@ -224,13 +228,17 @@ draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
 	encoder->setVertexBuffer(renderer.vertex_buffer, renderer.vertex_offset, 0)
 	encoder->setTriangleFillMode(.Lines)
 
-	for submesh in renderer.submeshes {
+	// The mesh owns its submeshes; iterate them directly, as in Swift.
+	submeshes := renderer.mesh->submeshes()
+	for index in 0 ..< submeshes->count() {
+		submesh := (^mdl.MTKSubmesh)(submeshes->object(index))
+		index_buffer := submesh->indexBuffer()
 		encoder->drawIndexedPrimitives(
 			.Triangle,
-			submesh.index_count,
-			submesh.index_type,
-			submesh.index_buffer,
-			submesh.index_offset,
+			submesh->indexCount(),
+			submesh->indexType(),
+			index_buffer->buffer(),
+			index_buffer->offset(),
 		)
 	}
 	encoder->endEncoding()
@@ -248,15 +256,45 @@ fatal_on :: proc(error: ^NS.Error, message: string) {
 	}
 }
 
+// applicationWillTerminate runs for both normal Quit and last-window close;
+// AppKit may exit without returning from app->run(). Also safe to call twice.
+app_shutdown :: proc() {
+	if application.view == nil {
+		return
+	}
+	pool := NS.AutoreleasePool.alloc()->init()
+	defer pool->release()
+
+	application.view->setPaused(true)
+	// The vendor setDelegate(nil) would wrap a nil Odin pointer in NSValue.
+	// Clear the Objective-C delegate itself before releasing its wrapper.
+	intrinsics.objc_send(nil, application.view, "setDelegate:", rawptr(nil))
+	renderer_destroy()
+	application.delegate_wrapper->release()
+
+	NS.Application.sharedApplication()->setDelegate(nil)
+	application.window->setContentView(nil)
+	application.view->release()
+	application.window->release()
+	application.device->release()
+	application.app_delegate->release()
+	application = {}
+}
+
 main :: proc() {
 	setup_pool := NS.AutoreleasePool.alloc()->init()
 
 	app := NS.Application.sharedApplication()
 	app->setActivationPolicy(.Regular)
 	app_delegate := NS.application_delegate_register_and_alloc(
-		{applicationShouldTerminateAfterLastWindowClosed = proc(sender: ^NS.Application) -> NS.BOOL {
-			return true
-		}},
+		{
+			applicationShouldTerminateAfterLastWindowClosed = proc(sender: ^NS.Application) -> NS.BOOL {
+				return true
+			},
+			applicationWillTerminate = proc(notification: ^NS.Notification) {
+				app_shutdown()
+			},
+		},
 		"Chapter2AppDelegate",
 		context,
 	)
@@ -272,6 +310,8 @@ main :: proc() {
 		.Buffered,
 		false,
 	)
+	// Keep ownership on close; app_shutdown balances our alloc/init.
+	window->setReleasedWhenClosed(false)
 	view := MTK.View.alloc()->initWithFrame(frame, device)
 	view->setClearColor(MTL.ClearColor{1, 1, 0.8, 1})
 
@@ -283,7 +323,15 @@ main :: proc() {
 	}
 	view->setDelegate(&view_delegate)
 	// MTKView's delegate is weak; retain MetalKit's autoreleased Odin bridge.
-	intrinsics.objc_send(^NS.Value, view, "delegate")->retain()
+	delegate_wrapper := intrinsics.objc_send(^NS.Value, view, "delegate")
+	delegate_wrapper->retain()
+	application = {
+		device           = device,
+		window           = window,
+		view             = view,
+		app_delegate     = app_delegate,
+		delegate_wrapper = delegate_wrapper,
+	}
 
 	window->setContentView(view)
 	window->center()
@@ -293,4 +341,5 @@ main :: proc() {
 
 	setup_pool->release()
 	app->run()
+	app_shutdown() // Fallback if a caller stops the run loop instead of terminating.
 }

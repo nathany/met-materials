@@ -40,10 +40,13 @@ buffers whose mesh data begins at a nonzero offset.
 ## Ownership to notice
 
 `when` is compile-time selection and does not introduce a scope: the asset and
-MDLMesh `defer` calls run when `renderer_init` finishes. The owned MTKMesh remains
-alive for the whole process, preserving the buffers cached in `Renderer`.
-The Odin submesh array also persists until process exit. These are bounded in
-this single-initialization example; they need explicit destruction before a
-reloadable renderer is introduced. See the [audit](../audit-2026-09.md) for the
-original findings and their evidence; current statuses are in
-[KNOWN_ISSUES.md](../../KNOWN_ISSUES.md).
+MDLMesh `defer` calls run when `renderer_init` finishes. `Renderer` explicitly owns
+the resulting MTKMesh, command queue, and pipeline until `renderer_destroy`.
+The vertex buffer borrows from that mesh; `draw` iterates the mesh's submeshes
+directly, as Swift does, so there is no duplicate Odin submesh array to free.
+
+As in chapter 1, `app_shutdown` pauses/detaches the view and releases the renderer,
+delegate wrapper, and shell from AppKit's termination callback. Closing the last
+window uses this path too. Destruction resets the renderer; call it with drawing
+stopped before initializing again. Metal's default command buffers retain their
+encoded resources until GPU completion.

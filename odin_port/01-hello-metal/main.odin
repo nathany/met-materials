@@ -49,9 +49,10 @@ fragment float4 fragment_main() {
 }
 `
 
-// Everything the playground sets up before drawing. Lives for the whole run,
-// so nothing here is released; the per-frame autorelease pool is in draw().
+// Own the mesh, queue, and pipeline until renderer_destroy. Cached buffers are
+// borrowed from the mesh and remain valid after the setup pool drains.
 Renderer :: struct {
+	mesh:           ^mdl.MTKMesh, // Owned; keeps borrowed GPU buffers alive.
 	command_queue:  ^MTL.CommandQueue,
 	pipeline_state: ^MTL.RenderPipelineState,
 	vertex_buffer:  ^MTL.Buffer,
@@ -65,7 +66,19 @@ Renderer :: struct {
 renderer: Renderer
 view_delegate: MTK.ViewDelegate
 
+// AppKit delegates are weak. Keep our owned references until app_shutdown.
+Application_State :: struct {
+	device:           ^MTL.Device,
+	window:           ^NS.Window,
+	view:             ^MTK.View,
+	app_delegate:     ^NS.ApplicationDelegate,
+	delegate_wrapper: ^NS.Value,
+}
+
+application: Application_State
+
 renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
+	assert(renderer.mesh == nil, "destroy the renderer before initializing it again")
 	// Autoreleased setup temporaries (vertex descriptor, arrays) drain here;
 	// everything Renderer keeps is either owned (+1) or retained by the mesh.
 	pool := NS.AutoreleasePool.alloc()->init()
@@ -83,7 +96,8 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	// let mesh = try MTKMesh(mesh: mdlMesh, device: device)
 	mesh, mesh_err := mdl.MTKMesh.alloc()->initWithMesh(mdl_mesh, device)
 	fatal_on(mesh_err, "failed to convert MDLMesh to MTKMesh")
-	// Kept alive forever (never released): it owns the GPU buffers below.
+	assert(mesh != nil, "failed to create MTKMesh")
+	renderer.mesh = mesh
 
 	renderer.command_queue = device->newCommandQueue()
 	assert(renderer.command_queue != nil, "failed to create Metal command queue")
@@ -114,7 +128,7 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	renderer.pipeline_state = pipeline_state
 
 	// mesh.vertexBuffers[0].buffer / mesh.submeshes.first — the buffers are
-	// retained by the (immortal) mesh.
+	// retained by renderer.mesh.
 	vertex_buffer := (^mdl.MTKMeshBuffer)(mesh->vertexBuffers()->object(0))
 	renderer.vertex_buffer = vertex_buffer->buffer()
 	// MTKMeshBuffers may share a Metal buffer; preserve this mesh's start.
@@ -126,6 +140,15 @@ renderer_init :: proc(device: ^MTL.Device, pixel_format: MTL.PixelFormat) {
 	renderer.index_type = submesh->indexType()
 	renderer.index_buffer = index_buffer->buffer()
 	renderer.index_offset = index_buffer->offset()
+}
+
+// Call only while drawing is stopped. Default Metal command buffers retain
+// their encoded resources until GPU work completes, including during shutdown.
+renderer_destroy :: proc() {
+	renderer.mesh->release()
+	renderer.pipeline_state->release()
+	renderer.command_queue->release()
+	renderer = {}
 }
 
 draw :: proc "c" (self: ^MTK.ViewDelegate, view: ^MTK.View) {
@@ -170,6 +193,31 @@ fatal_on :: proc(error: ^NS.Error, message: string) {
 	}
 }
 
+// applicationWillTerminate runs for both normal Quit and last-window close;
+// AppKit may exit without returning from app->run(). Also safe to call twice.
+app_shutdown :: proc() {
+	if application.view == nil {
+		return
+	}
+	pool := NS.AutoreleasePool.alloc()->init()
+	defer pool->release()
+
+	application.view->setPaused(true)
+	// The vendor setDelegate(nil) would wrap a nil Odin pointer in NSValue.
+	// Clear the Objective-C delegate itself before releasing its wrapper.
+	intrinsics.objc_send(nil, application.view, "setDelegate:", rawptr(nil))
+	renderer_destroy()
+	application.delegate_wrapper->release()
+
+	NS.Application.sharedApplication()->setDelegate(nil)
+	application.window->setContentView(nil)
+	application.view->release()
+	application.window->release()
+	application.device->release()
+	application.app_delegate->release()
+	application = {}
+}
+
 main :: proc() {
 	// App setup happens before the run loop (which manages its own pools),
 	// so it needs a pool of its own; drained just before run(). Everything
@@ -180,9 +228,14 @@ main :: proc() {
 	app->setActivationPolicy(.Regular)
 
 	app_delegate := NS.application_delegate_register_and_alloc(
-		{applicationShouldTerminateAfterLastWindowClosed = proc(sender: ^NS.Application) -> NS.BOOL {
-			return true
-		}},
+		{
+			applicationShouldTerminateAfterLastWindowClosed = proc(sender: ^NS.Application) -> NS.BOOL {
+				return true
+			},
+			applicationWillTerminate = proc(notification: ^NS.Notification) {
+				app_shutdown()
+			},
+		},
 		"AppDelegate",
 		context,
 	)
@@ -201,6 +254,9 @@ main :: proc() {
 		false,
 	)
 
+	// Keep ownership on close; app_shutdown balances our alloc/init.
+	window->setReleasedWhenClosed(false)
+
 	// let view = MTKView(frame: frame, device: device)
 	view := MTK.View.alloc()->initWithFrame(frame, device)
 	view->setClearColor(MTL.ClearColor{1, 1, 0.8, 1})
@@ -215,7 +271,15 @@ main :: proc() {
 	// MTKView holds its delegate *weakly*, and the vendor bridge wraps ours
 	// in an autoreleased NSValue — without this retain, the setup pool would
 	// deallocate the wrapper and drawing would silently stop.
-	intrinsics.objc_send(^NS.Value, view, "delegate")->retain()
+	delegate_wrapper := intrinsics.objc_send(^NS.Value, view, "delegate")
+	delegate_wrapper->retain()
+	application = {
+		device           = device,
+		window           = window,
+		view             = view,
+		app_delegate     = app_delegate,
+		delegate_wrapper = delegate_wrapper,
+	}
 
 	window->setContentView(view)
 	window->center()
@@ -225,4 +289,5 @@ main :: proc() {
 	app->activate()
 	setup_pool->release()
 	app->run()
+	app_shutdown() // Fallback if a caller stops the run loop instead of terminating.
 }

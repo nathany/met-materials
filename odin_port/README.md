@@ -96,8 +96,9 @@ it serves a different purpose. `just` with no arguments lists the recipes.
 
 See the [dev-2026-09 verification](verification-2026-09.md) for the five-variant
 runtime check and a review of relevant bundled library changes.
-The [code and plan audit](audit-2026-09.md) records remaining code findings and
-the memory/layout checks. Each chapter README links its exact Swift references
+The [code and plan audit](audit-2026-09.md) records the original findings and
+memory/layout checks; the [fix verification](fix-verification-2026-09.md) records
+their resolution. Each chapter README links its exact Swift references
 and explains the deliberate differences.
 
 ## Chapters
